@@ -1,0 +1,570 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Linking,
+} from 'react-native';
+import { useLocalSearchParams, router } from 'expo-router';
+import { Colors } from '../constants/Colors';
+import { getContractById, verifyContractOnAlgorand } from '../services/api';
+import { LoadingOverlay } from '../components/LoadingOverlay';
+import { ErrorToast } from '../components/ErrorToast';
+import { useAsync } from '../hooks/useAsync';
+import { normalizers } from '../utils/validators';
+import { logger } from '../utils/logger';
+
+const MODULE = 'LoanDetailScreen';
+
+export default function LoanDetailScreen() {
+  const { contractId } = useLocalSearchParams();
+  const [contract, setContract] = useState<any>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  const { loading, execute: executeLoad } = useAsync({
+    module: MODULE,
+    onError: (error) => {
+      setToastMessage(error.message || 'Error cargando detalles');
+      setToastVisible(true);
+    },
+  });
+
+  const { loading: verifying, execute: executeVerify } = useAsync({
+    module: MODULE,
+    onSuccess: (result) => {
+      Linking.openURL(result.explorerUrl);
+    },
+    onError: (error) => {
+      setToastMessage(error.message || 'Error al verificar en blockchain');
+      setToastVisible(true);
+    },
+  });
+
+  useEffect(() => {
+    if (contractId) {
+      loadContractDetails();
+    }
+  }, [contractId]);
+
+  const loadContractDetails = async () => {
+    const contractData = await executeLoad(getContractById(contractId as string), 'Cargando detalles');
+    if (contractData) {
+      setContract(contractData);
+      logger.info(MODULE, 'Detalles cargados', { contractId });
+    }
+  };
+
+  const handleVerifyBlockchain = async () => {
+    if (!contract?.algorandTxId) {
+      setToastMessage('Este contrato no tiene registro en blockchain');
+      setToastVisible(true);
+      return;
+    }
+    await executeVerify(
+      verifyContractOnAlgorand(contract.id, contract.algorandTxId),
+      'Verificando en blockchain'
+    );
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'solicitado': return '#F39C12';
+      case 'aceptado': return Colors.verdeOlivo;
+      case 'activo': return Colors.verdeOlivo;
+      case 'pagado': return Colors.verdeExito;
+      case 'rechazado': return Colors.rojoError;
+      default: return Colors.grisOscuro;
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'solicitado': return 'Solicitado';
+      case 'aceptado': return 'Aprobado';
+      case 'activo': return 'Activo';
+      case 'pagado': return 'Pagado';
+      case 'rechazado': return 'Rechazado';
+      default: return status;
+    }
+  };
+
+  // Función para obtener el saldo real basado SOLO en pagos confirmados
+  const getRealRemainingAmount = (contract: any): number => {
+    const originalAmount = contract.approvedAmount || contract.requestedAmount || 0;
+    const confirmedTotal = contract.payments
+      ?.filter((p: any) => p.confirmed)
+      .reduce((sum: number, p: any) => sum + p.amount, 0) || 0;
+    return originalAmount - confirmedTotal;
+  };
+
+  // Función para obtener el total pagado (solo confirmados)
+  const getConfirmedTotalPaid = (contract: any): number => {
+    return contract.payments
+      ?.filter((p: any) => p.confirmed)
+      .reduce((sum: number, p: any) => sum + p.amount, 0) || 0;
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.verdeOlivo} />
+        <Text style={styles.loadingText}>Cargando detalles...</Text>
+      </View>
+    );
+  }
+
+  if (!contract) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorIcon}>⚠️</Text>
+        <Text style={styles.errorTitle}>Contrato no encontrado</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Text style={styles.backButtonText}>Volver</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const totalPaid = getConfirmedTotalPaid(contract);
+  const remaining = getRealRemainingAmount(contract);
+
+  return (
+    <>
+      <LoadingOverlay visible={verifying} message="Verificando en blockchain..." />
+      <ErrorToast visible={toastVisible} message={toastMessage} onHide={() => setToastVisible(false)} />
+
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        {/* Encabezado con estado */}
+        <View style={[styles.header, { backgroundColor: getStatusColor(contract.status) + '10' }]}>
+          <View style={styles.statusContainer}>
+            <Text style={[styles.statusText, { color: getStatusColor(contract.status) }]}>
+              {getStatusText(contract.status)}
+            </Text>
+          </View>
+          <Text style={styles.contractId}>ID: {contract.id}</Text>
+        </View>
+
+        {/* Tipo de contrato */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
+            {contract.type === 'prestamo' ? '💰 Préstamo' : '🛠️ Servicio'}
+          </Text>
+        </View>
+
+        {/* Participantes */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>👥 Participantes</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Deudor:</Text>
+            <Text style={styles.infoValue}>
+              {contract.debtorName ? `${contract.debtorName} (${contract.debtorPhone})` : contract.debtorPhone}
+            </Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Acreedor:</Text>
+            <Text style={styles.infoValue}>
+              {contract.creditorName ? `${contract.creditorName} (${contract.creditorPhone})` : contract.creditorPhone}
+            </Text>
+          </View>
+        </View>
+
+        {/* Descripción */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>📝 Descripción</Text>
+          <Text style={styles.description}>{contract.description}</Text>
+        </View>
+
+        {/* Montos */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>💰 Montos</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Monto solicitado:</Text>
+            <Text style={styles.infoValue}>{normalizers.currency(contract.requestedAmount)}</Text>
+          </View>
+          {contract.approvedAmount && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Monto aprobado:</Text>
+              <Text style={styles.infoValueBold}>{normalizers.currency(contract.approvedAmount)}</Text>
+            </View>
+          )}
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Total pagado (confirmado):</Text>
+            <Text style={styles.infoValueSuccess}>{normalizers.currency(totalPaid)}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Saldo pendiente:</Text>
+            <Text style={styles.infoValueBold}>{normalizers.currency(remaining > 0 ? remaining : 0)}</Text>
+          </View>
+        </View>
+
+        {/* Fechas */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>📅 Fechas</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Fecha propuesta:</Text>
+            <Text style={styles.infoValue}>{contract.proposedDueDate}</Text>
+          </View>
+          {contract.approvedDueDate && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Fecha acordada:</Text>
+              <Text style={styles.infoValueBold}>{contract.approvedDueDate}</Text>
+            </View>
+          )}
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Creado:</Text>
+            <Text style={styles.infoValue}>{new Date(contract.createdAt).toLocaleDateString('es-PE')}</Text>
+          </View>
+          {contract.completedAt && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Completado:</Text>
+              <Text style={styles.infoValue}>{new Date(contract.completedAt).toLocaleDateString('es-PE')}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Comprobante de depósito del acreedor */}
+{(contract.depositProofUri || contract.deposit_proof_uri) && (
+  <View style={styles.card}>
+    <Text style={styles.cardTitle}>🏦 Comprobante de depósito</Text>
+    <Text style={styles.depositInfo}>
+      El acreedor realizó el depósito el: {new Date(contract.depositProofDate || contract.deposit_proof_date).toLocaleDateString('es-PE')}
+    </Text>
+    <TouchableOpacity
+      style={styles.viewProofButton}
+      onPress={() => {
+        const uri = contract.depositProofUri || contract.deposit_proof_uri;
+        const fileName = contract.depositProofFileName || contract.deposit_proof_file_name || 'comprobante-deposito';
+        router.push({
+          pathname: '/view-proof',
+          params: { uri, fileName }
+        });
+      }}
+    >
+      <Text style={styles.viewProofText}>📎 Ver comprobante de depósito</Text>
+    </TouchableOpacity>
+  </View>
+)}
+
+        {/* Historial de pagos */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>📋 Historial de pagos</Text>
+          {contract.payments && contract.payments.length > 0 ? (
+            contract.payments.map((payment: any, index: number) => (
+              <View key={payment.id} style={styles.paymentItem}>
+                <View style={styles.paymentHeader}>
+                  <Text style={styles.paymentNumber}>Pago #{index + 1}</Text>
+                  <Text style={[styles.paymentType, payment.type === 'total' ? styles.totalPayment : styles.partialPayment]}>
+                    {payment.type === 'total' ? 'Pago total' : 'Pago parcial'}
+                  </Text>
+                </View>
+                <View style={styles.paymentDetails}>
+                  <Text style={styles.paymentAmount}>S/ {payment.amount.toFixed(2)}</Text>
+                  <Text style={styles.paymentDate}>
+                    {new Date(payment.date).toLocaleDateString('es-PE')} - {new Date(payment.date).toLocaleTimeString('es-PE')}
+                  </Text>
+                </View>
+                
+                {/* Indicador de estado de confirmación */}
+                <View style={styles.paymentStatus}>
+                  <Text style={[styles.paymentStatusText, payment.confirmed ? styles.statusConfirmed : styles.statusPending]}>
+                    {payment.confirmed ? '✓ Confirmado por el acreedor' : '⏳ Pendiente de confirmación'}
+                  </Text>
+                </View>
+                
+                {payment.proofUri && (
+                  <TouchableOpacity
+                    style={styles.viewProofButton}
+                    onPress={() => {
+                      router.push({
+                        pathname: '/view-proof',
+                        params: { uri: payment.proofUri, fileName: payment.proofFileName || 'comprobante' }
+                      });
+                    }}
+                  >
+                    <Text style={styles.viewProofText}>📎 Ver comprobante de pago</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noPayments}>No hay pagos registrados</Text>
+          )}
+        </View>
+
+        {/* Blockchain */}
+        {/*contract.algorandTxId && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>🔗 Blockchain</Text>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Transaction ID:</Text>
+              <Text style={styles.txId} numberOfLines={1}>{contract.algorandTxId}</Text>
+            </View>
+            <TouchableOpacity style={styles.verifyButton} onPress={handleVerifyBlockchain}>
+              <Text style={styles.verifyButtonText}>Ver en explorador</Text>
+            </TouchableOpacity>
+          </View>
+        )*/}
+
+        {/* Botón volver */}
+        <TouchableOpacity style={styles.backButtonFull} onPress={() => router.back()}>
+          <Text style={styles.backButtonFullText}>← Volver al historial</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.grisClaro,
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: Colors.azulMarino,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: Colors.blanco,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    backgroundColor: Colors.grisClaro,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.azulMarino,
+    marginBottom: 20,
+  },
+  header: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  statusContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: Colors.blanco,
+    marginBottom: 8,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  contractId: {
+    fontSize: 10,
+    color: Colors.grisOscuro,
+  },
+  card: {
+    backgroundColor: Colors.blanco,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.azulMarino,
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    flexWrap: 'wrap',
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: Colors.grisOscuro,
+    width: 100,
+  },
+  infoValue: {
+    fontSize: 14,
+    color: Colors.azulMarino,
+    flex: 1,
+    textAlign: 'right',
+  },
+  infoValueBold: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Colors.verdeOlivo,
+    flex: 1,
+    textAlign: 'right',
+  },
+  infoValueSuccess: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Colors.verdeExito,
+    flex: 1,
+    textAlign: 'right',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: Colors.grisClaro,
+    marginVertical: 12,
+  },
+  description: {
+    fontSize: 14,
+    color: Colors.azulMarino,
+    lineHeight: 20,
+  },
+  depositInfo: {
+    fontSize: 12,
+    color: Colors.grisOscuro,
+    marginBottom: 12,
+  },
+  paymentItem: {
+    backgroundColor: Colors.grisClaro,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  paymentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  paymentNumber: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.azulMarino,
+  },
+  paymentType: {
+    fontSize: 11,
+    fontWeight: '500',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  totalPayment: {
+    backgroundColor: Colors.verdeExito + '20',
+    color: Colors.verdeExito,
+  },
+  partialPayment: {
+    backgroundColor: Colors.verdeOlivo + '20',
+    color: Colors.verdeOlivo,
+  },
+  paymentDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  paymentAmount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.azulMarino,
+  },
+  paymentDate: {
+    fontSize: 11,
+    color: Colors.grisOscuro,
+  },
+  paymentStatus: {
+    marginTop: 8,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: Colors.grisClaro,
+  },
+  paymentStatusText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  statusConfirmed: {
+    color: Colors.verdeExito,
+  },
+  statusPending: {
+    color: '#F39C12',
+  },
+  viewProofButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.azulMarino + '10',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  viewProofText: {
+    fontSize: 12,
+    color: Colors.azulMarino,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  noPayments: {
+    fontSize: 14,
+    color: Colors.grisOscuro,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  txId: {
+    fontSize: 10,
+    fontFamily: 'monospace',
+    color: Colors.grisOscuro,
+    flex: 1,
+    marginLeft: 8,
+    textAlign: 'right',
+  },
+  verifyButton: {
+    backgroundColor: Colors.azulMarino,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  verifyButtonText: {
+    color: Colors.blanco,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  backButton: {
+    backgroundColor: Colors.verdeOlivo,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  backButtonText: {
+    color: Colors.blanco,
+    fontWeight: '600',
+  },
+  backButtonFull: {
+    backgroundColor: Colors.grisClaro,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  backButtonFullText: {
+    color: Colors.azulMarino,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+});
