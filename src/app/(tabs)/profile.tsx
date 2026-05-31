@@ -10,12 +10,28 @@ import {
 } from 'react-native';
 import { router, Href } from 'expo-router';
 import { Colors } from '../../constants/Colors';
-import { getSession, getProfile, clearSession, getAllUserContracts, User } from '../../services/api';
+import { getSession, getUserByEmail, clearSession, getAllUserContracts, Contract } from '../../services/api';
+import { normalizers } from '../../utils/validators';
+
+// Función para obtener el saldo real basado SOLO en pagos confirmados
+const getRealRemainingAmount = (contract: Contract): number => {
+  const originalAmount = contract.approvedAmount || contract.requestedAmount || 0;
+  const confirmedTotal = contract.payments
+    ?.filter(p => p.confirmed)
+    .reduce((sum, p) => sum + p.amount, 0) || 0;
+  return originalAmount - confirmedTotal;
+};
 
 export default function ProfileScreen() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ prestamos: 0, servicios: 0, completados: 0, activos: 0 });
+  const [stats, setStats] = useState({
+    totalPrestamos: 0,
+    totalServicios: 0,
+    totalDebt: 0,      // Saldo pendiente que debo
+    totalLent: 0,      // Saldo pendiente que me deben
+    completedCount: 0,
+  });
 
   useEffect(() => {
     loadProfile();
@@ -25,16 +41,12 @@ export default function ProfileScreen() {
     try {
       const email = await getSession();
       if (email) {
-        const profile = await getProfile(email);
+        const profile = await getUserByEmail(email);
         setUser(profile);
         
-        // Cargar estadísticas de contratos
-        const contracts = await getAllUserContracts(email);
-        const prestamos = contracts.filter(c => c.type === 'prestamo').length;
-        const servicios = contracts.filter(c => c.type === 'servicio').length;
-        const completados = contracts.filter(c => c.status === 'pagado').length;
-        const activos = contracts.filter(c => c.status === 'aceptado' || c.status === 'solicitado').length;
-        setStats({ prestamos, servicios, completados, activos });
+        // Cargar contratos para estadísticas
+        const contracts = await getAllUserContracts(profile.phone);
+        calculateStats(contracts, profile.phone);
       }
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -42,6 +54,36 @@ export default function ProfileScreen() {
       setLoading(false);
     }
   };
+
+  const calculateStats = (contracts: Contract[], userPhone: string) => {
+  // Filtrar contratos completados (pagados)
+  const completed = contracts.filter(c => c.status === 'pagado');
+  
+  // Contar préstamos y servicios
+  const prestamos = contracts.filter(c => c.type === 'prestamo').length;
+  const servicios = contracts.filter(c => c.type === 'servicio').length;
+  
+  // Calcular saldo pendiente que me deben (como acreedor)
+  // Usar remainingAmount directamente (ya está actualizado en backend)
+  const lentContracts = contracts.filter(c => c.creditorPhone === userPhone && c.status !== 'pagado');
+  const totalLent = lentContracts.reduce((sum, contract) => {
+    return sum + (contract.remainingAmount || contract.approvedAmount || contract.requestedAmount || 0);
+  }, 0);
+  
+  // Calcular saldo pendiente que debo (como deudor)
+  const debtContracts = contracts.filter(c => c.debtorPhone === userPhone && c.status !== 'pagado');
+  const totalDebt = debtContracts.reduce((sum, contract) => {
+    return sum + (contract.remainingAmount || contract.approvedAmount || contract.requestedAmount || 0);
+  }, 0);
+  
+  setStats({
+    totalPrestamos: prestamos,
+    totalServicios: servicios,
+    totalDebt,
+    totalLent,
+    completedCount: completed.length,
+  });
+};
 
   const handleLogout = async () => {
     Alert.alert(
@@ -71,68 +113,55 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Avatar */}
-      <View style={styles.avatarContainer}>
-        <Text style={styles.avatar}>
-          {user?.nombres?.charAt(0) || user?.email?.charAt(0) || '?'}
-        </Text>
-      </View>
-
-      {/* Información del usuario */}
+      {/* Información del usuario - Sin avatar */}
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>Información personal</Text>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Nombres:</Text>
-          <Text style={styles.infoValue}>{user?.nombres || 'No especificado'}</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Email:</Text>
-          <Text style={styles.infoValue}>{user?.email}</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>DNI:</Text>
-          <Text style={styles.infoValue}>{user?.dni || 'No especificado'}</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Teléfono:</Text>
-          <Text style={styles.infoValue}>{user?.phone || 'No especificado'}</Text>
+        <Text style={styles.userName}>{user?.nombres || 'Usuario'}</Text>
+        <Text style={styles.userEmail}>{user?.email}</Text>
+        <View style={styles.userDetails}>
+          <Text style={styles.userDetailText}>📄 DNI: {user?.dni || 'No especificado'}</Text>
+          <Text style={styles.userDetailText}>📞 Teléfono: {user?.phone || 'No especificado'}</Text>
         </View>
       </View>
 
-      {/* Información de Blockchain */}
-      <View style={styles.blockchainCard}>
-        <Text style={styles.blockchainTitle}>🔗 Algorand Blockchain</Text>
-        <Text style={styles.blockchainLabel}>Dirección de tu wallet:</Text>
-        <Text style={styles.blockchainAddress} numberOfLines={1} ellipsizeMode="middle">
-          {user?.algorandAddress || 'No generada'}
-        </Text>
-        <Text style={styles.blockchainNote}>
-          Esta dirección es única y se genera al crear tu cuenta.
-          Todos tus contratos se registran aquí.
-        </Text>
-      </View>
-
-      {/* Estadísticas */}
-      <View style={styles.statsContainer}>
+      {/* Tarjetas de estadísticas principales */}
+      <View style={styles.statsGrid}>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{stats.activos}</Text>
-          <Text style={styles.statLabel}>Activos</Text>
+          <Text style={styles.statNumber}>{stats.totalPrestamos + stats.totalServicios}</Text>
+          <Text style={styles.statLabel}>Pactos totales</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{stats.prestamos}</Text>
-          <Text style={styles.statLabel}>Préstamos</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{stats.servicios}</Text>
-          <Text style={styles.statLabel}>Servicios</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{stats.completados}</Text>
+          <Text style={styles.statNumber}>{stats.completedCount}</Text>
           <Text style={styles.statLabel}>Completados</Text>
+        </View>
+      </View>
+
+      {/* Estadísticas de montos (saldo pendiente real) */}
+      <View style={styles.moneyStatsContainer}>
+        <View style={styles.moneyStatCard}>
+          <Text style={styles.moneyStatLabel}>💰 Me deben (pendiente)</Text>
+          <Text style={styles.moneyStatValue}>{normalizers.currency(stats.totalLent)}</Text>
+        </View>
+        <View style={[styles.moneyStatCard, styles.moneyStatCardDebt]}>
+          <Text style={styles.moneyStatLabel}>📉 Debo (pendiente)</Text>
+          <Text style={styles.moneyStatValue}>{normalizers.currency(stats.totalDebt)}</Text>
+        </View>
+      </View>
+
+      {/* Resumen por tipo */}
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryTitle}>Resumen por tipo</Text>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryIcon}>💰</Text>
+            <Text style={styles.summaryLabel}>Préstamos</Text>
+            <Text style={styles.summaryValue}>{stats.totalPrestamos}</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryIcon}>🤝</Text>
+            <Text style={styles.summaryLabel}>Servicios</Text>
+            <Text style={styles.summaryValue}>{stats.totalServicios}</Text>
+          </View>
         </View>
       </View>
 
@@ -161,103 +190,144 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Colors.verdeOlivo,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: Colors.blanco,
-    overflow: 'hidden',
-  },
+  // Tarjeta de información del usuario
   infoCard: {
     backgroundColor: Colors.blanco,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  infoTitle: {
-    fontSize: 18,
+  userName: {
+    fontSize: 24,
     fontWeight: 'bold',
     color: Colors.azulMarino,
-    marginBottom: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  infoLabel: {
-    width: 80,
-    fontSize: 14,
-    fontWeight: '500',
-    color: Colors.grisOscuro,
-  },
-  infoValue: {
-    flex: 1,
-    fontSize: 14,
-    color: Colors.azulMarino,
-  },
-  blockchainCard: {
-    backgroundColor: Colors.azulMarino,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
-  blockchainTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Colors.verdeOlivo,
-    marginBottom: 12,
-  },
-  blockchainLabel: {
-    fontSize: 12,
-    color: Colors.blanco,
-    opacity: 0.7,
     marginBottom: 4,
   },
-  blockchainAddress: {
-    fontSize: 12,
-    fontFamily: 'monospace',
-    color: Colors.blanco,
+  userEmail: {
+    fontSize: 14,
+    color: Colors.grisOscuro,
     marginBottom: 12,
   },
-  blockchainNote: {
-    fontSize: 11,
-    color: Colors.blanco,
-    opacity: 0.5,
+  userDetails: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.grisClaro,
+    paddingTop: 12,
+    marginTop: 4,
   },
-  statsContainer: {
+  userDetailText: {
+    fontSize: 13,
+    color: Colors.azulMarino,
+    marginBottom: 4,
+  },
+  // Grid de estadísticas principales
+  statsGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 12,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   statCard: {
     flex: 1,
-    minWidth: '45%',
     backgroundColor: Colors.blanco,
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   statNumber: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: Colors.verdeOlivo,
   },
   statLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: Colors.grisOscuro,
     marginTop: 4,
+  },
+  // Estadísticas de montos
+  moneyStatsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  moneyStatCard: {
+    flex: 1,
+    backgroundColor: Colors.blanco,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.verdeOlivo,
+  },
+  moneyStatCardDebt: {
+    borderLeftColor: '#E74C3C',
+  },
+  moneyStatLabel: {
+    fontSize: 12,
+    color: Colors.grisOscuro,
+    marginBottom: 4,
+  },
+  moneyStatValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.azulMarino,
+  },
+  // Resumen por tipo
+  summaryCard: {
+    backgroundColor: Colors.blanco,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.azulMarino,
+    marginBottom: 16,
     textAlign: 'center',
   },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  summaryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  summaryIcon: {
+    fontSize: 28,
+    marginBottom: 6,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: Colors.grisOscuro,
+    marginBottom: 4,
+  },
+  summaryValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.verdeOlivo,
+  },
+  summaryDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: Colors.grisClaro,
+  },
+  // Botón cerrar sesión
   logoutButton: {
     backgroundColor: '#E74C3C',
     borderRadius: 50,

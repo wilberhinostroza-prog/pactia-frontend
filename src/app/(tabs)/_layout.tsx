@@ -18,9 +18,14 @@ export default function TabsLayout() {
         backgroundColor: Colors.azulMarino,
         borderTopColor: Colors.verdeOlivo,
         borderTopWidth: 2,
-        height: 70,
+        height: 75,
         paddingBottom: 10,
         paddingTop: 8,
+        //position: 'absolute', // ← Para flotar
+        bottom: 20,           // ← Separación del borde inferior
+        left: 10,
+        right: 10,
+        //borderRadius: 30,     // ← Bordes redondeados (opcional)
         shadowColor: Colors.verdeOlivo,
         shadowOffset: { width: 0, height: -2 },
         shadowOpacity: 0.1,
