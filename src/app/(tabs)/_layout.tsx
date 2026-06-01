@@ -1,9 +1,22 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { View, Text, StyleSheet } from 'react-native';
 import { Colors } from '../../constants/Colors';
+import { usePendingRequestsCount } from '../../hooks/usePendingRequestsCount';
+
+// Componente de badge
+const Badge = ({ count }: { count: number }) => {
+  if (count === 0) return null;
+  return (
+    <View style={styles.badge}>
+      <Text style={styles.badgeText}>{count > 9 ? '9+' : count}</Text>
+    </View>
+  );
+};
 
 export default function TabsLayout() {
+  const { count: pendingRequestsCount } = usePendingRequestsCount();
   return (
     <Tabs
       screenOptions={{
@@ -73,7 +86,10 @@ export default function TabsLayout() {
           tabBarLabel: 'Solicitudes',
           headerTitle: 'Solicitudes recibidas',
           tabBarIcon: ({ color, size }) => (
-          <Ionicons name="notifications-outline" size={28} color={color} />
+          <View>
+              <Ionicons name="notifications-outline" size={28} color={color} />
+              <Badge count={pendingRequestsCount} />
+            </View>
           ),
         }}
       />
@@ -103,3 +119,23 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    top: -5,
+    right: -10,
+    backgroundColor: Colors.rojoError,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: Colors.blanco,
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+});

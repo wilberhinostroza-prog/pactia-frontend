@@ -3,9 +3,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Colors } from '../constants/Colors';
 import { ensureSharedFolder } from '../services/sharedFiles';
+//import { useNotifications } from '../hooks/useNotifications';
 
 export default function RootLayout() {
   // Crear carpeta compartida al iniciar la app
+  //useNotifications(); // ← Agregar esta línea
   useEffect(() => {
     ensureSharedFolder();
   }, []);

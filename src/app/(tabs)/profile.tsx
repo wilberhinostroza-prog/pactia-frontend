@@ -12,6 +12,7 @@ import { router, Href } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { getSession, getUserByEmail, clearSession, getAllUserContracts, Contract } from '../../services/api';
 import { normalizers } from '../../utils/validators';
+//import { schedulePaymentReminder, cancelAllNotifications } from '../../hooks/useNotifications';
 
 // Función para obtener el saldo real basado SOLO en pagos confirmados
 const getRealRemainingAmount = (contract: Contract): number => {
@@ -110,6 +111,20 @@ export default function ProfileScreen() {
       </View>
     );
   }
+  /*const testNotification = async () => {
+  await schedulePaymentReminder(
+    'test',
+    '🔔 Notificación de prueba',
+    'Esto es un recordatorio de prueba',
+    5
+  );
+  Alert.alert('✅ Notificación programada', 'Aparecerá en 5 segundos');
+};
+
+const clearNotifications = async () => {
+  await cancelAllNotifications();
+  Alert.alert('✅ Notificaciones eliminadas', 'Todas las notificaciones fueron canceladas');
+};*/
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -164,8 +179,7 @@ export default function ProfileScreen() {
           </View>
         </View>
       </View>
-
-      {/* Botón cerrar sesión */}
+        {/* Botón cerrar sesión */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutButtonText}>Cerrar sesión</Text>
       </TouchableOpacity>
@@ -345,4 +359,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.grisOscuro,
   },
+  testButtons: {
+  flexDirection: 'row',
+  gap: 12,
+  marginTop: 16,
+  marginBottom: 16,
+},
+testButton: {
+  flex: 1,
+  backgroundColor: Colors.azulMarino,
+  borderRadius: 8,
+  paddingVertical: 10,
+  alignItems: 'center',
+},
+clearButton: {
+  backgroundColor: Colors.grisOscuro,
+},
+testButtonText: {
+  color: Colors.blanco,
+  fontSize: 12,
+  fontWeight: '500',
+},
 });

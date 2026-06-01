@@ -2,8 +2,8 @@
 export const CONFIG = {
   // API
   API_URL: 'https://backend-pactia.onrender.com/api',
-  // API_URL: 'http://192.168.1.51:3001/api', // Cambia por tu IP
-  USE_SUPABASE: false, // ← Cambiar a true cuando esté listo
+  /*API_URL: 'http://10.20.10.22:3001/api',*/
+  USE_SUPABASE: false,
   
   // Supabase
   SUPABASE_URL: 'https://wvesdeutvzjazmvalweg.supabase.co',

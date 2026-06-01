@@ -21,9 +21,9 @@
       },
       "package": "com.pactia.app",
       "intentFilters": [
-  {
-    "action": "android.intent.action.SEND",
-    "data": [
+      {
+      "action": "android.intent.action.SEND",
+      "data": [
       {
         "mimeType": "image/jpeg"
       },
@@ -38,9 +38,9 @@
       }
     ],
     "category": ["android.intent.category.DEFAULT"]
-  }
-],
-      "permissions": [
+    }
+    ],
+    "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -53,8 +53,7 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-splash-screen",
+      ["expo-splash-screen",
         {
           "backgroundColor": "#2C3E50",
           "android": {
@@ -63,19 +62,18 @@
           }
         }
       ],
-      [
-        "expo-contacts",
+      ["expo-contacts",
         {
           "contactsPermission": "Permite a Pactia acceder a tus contactos para que puedas seleccionar fácilmente a tus amigos y familiares para préstamos y servicios."
         }
       ],
-      [
-        "expo-image-picker",
+      ["expo-image-picker",
         {
           "photosPermission": "Pactia necesita acceso a tu galería para adjuntar comprobantes de pago.",
           "cameraPermission": "Pactia necesita acceso a tu cámara para tomar fotos de comprobantes."
         }
       ],
+      "expo-notifications",
       "expo-secure-store",
       "@react-native-community/datetimepicker",
       "expo-sharing"

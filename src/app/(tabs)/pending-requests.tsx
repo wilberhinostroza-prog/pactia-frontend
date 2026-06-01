@@ -37,6 +37,7 @@ import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
 import { supabase } from '../../lib/supabase';
 import { readAsStringAsync } from 'expo-file-system/legacy';
+//import { schedulePaymentReminder } from '../../hooks/useNotifications';
 
 
 const MODULE = 'PendingRequestsScreen';
@@ -103,28 +104,66 @@ export default function PendingRequestsScreen() {
   });
 
   const { loading: approving, execute: executeApprove } = useAsync({
-    module: MODULE,
-    onSuccess: () => {
-      const type = selectedRequest?.type;
-      const message = type === 'prestamo' 
-        ? '✓ Préstamo aprobado y registrado en blockchain' 
-        : '✓ Servicio aprobado';
-      setToastMessage(message);
-      setToastType('success');
-      setToastVisible(true);
-      setModalVisible(false);
-      setDepositImage(null);
-      if (userPhone) {
-        loadAllRequests(userPhone);
-        loadApprovedServicesCount(userPhone);
-      }
-    },
-    onError: (error) => {
-      setToastMessage(error.message || 'Error al aprobar');
-      setToastType('error');
-      setToastVisible(true);
-    },
-  });
+  module: MODULE,
+  onSuccess: () => {
+    const type = selectedRequest?.type;
+    const message = type === 'prestamo' 
+      ? '✓ Préstamo aprobado y registrado en blockchain' 
+      : '✓ Servicio aprobado';
+    setToastMessage(message);
+    setToastType('success');
+    setToastVisible(true);
+    setModalVisible(false);
+    
+    // Programar recordatorios (solo para préstamos)
+    if (type === 'prestamo' && selectedRequest) {
+      setTimeout(async () => {
+        try {
+          const dueDate = approvedDueDate || selectedRequest.proposedDueDate;
+          const amountToShow = Number(approvedAmount) || Number(selectedRequest.requestedAmount);
+          const [day, month, year] = dueDate.split('/');
+          const dueDateTime = new Date(`${year}-${month}-${day}T23:59:59`).getTime();
+          const now = Date.now();
+          const daysUntilDueRaw = (dueDateTime - now) / (1000 * 60 * 60 * 24);
+          const validDays = Math.max(0, Math.ceil(daysUntilDueRaw));
+          
+          if (validDays > 3) {
+            const secondsBefore = (validDays - 3) * 24 * 60 * 60;
+            /*await schedulePaymentReminder(
+              selectedRequest.id,
+              '📅 Pago próximo',
+              `El préstamo de ${normalizers.currency(amountToShow)} vence el ${dueDate}`,
+              Number(secondsBefore)
+            );*/
+          }
+          
+          if (validDays > 0 && validDays <= 3) {
+            /*await schedulePaymentReminder(
+              selectedRequest.id,
+              '⚠️ Pago pendiente',
+              `Tu pago de ${normalizers.currency(amountToShow)} vence en ${validDays} día${validDays !== 1 ? 's' : ''}`,
+              Number(validDays * 24 * 60 * 60)
+            );*/
+          }
+        } catch (error) {
+          console.error('Error programando recordatorio:', error);
+        }
+      }, 100);
+    }
+    
+    // Recargar datos
+    if (userPhone) {
+      loadReceivedRequests(userPhone);
+      loadSentRequests(userPhone);
+      loadApprovedServicesCount(userPhone);
+    }
+  },
+  onError: (error) => {
+    setToastMessage(error.message || 'Error al aprobar');
+    setToastType('error');
+    setToastVisible(true);
+  },
+});
 
   const { loading: rejecting, execute: executeReject } = useAsync({
     module: MODULE,
