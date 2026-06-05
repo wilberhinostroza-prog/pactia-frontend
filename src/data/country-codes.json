@@ -1,0 +1,142 @@
+[
+  {
+    "pais": "Argentina",
+    "codigo": "+54",
+    "min": 10,
+    "max": 10,
+    "regex": "^[0-9]{10}$",
+    "ejemplo": "9112345678",
+    "moneda": "ARS",
+    "simbolo": "$"
+  },
+  {
+    "pais": "Bolivia",
+    "codigo": "+591",
+    "min": 8,
+    "max": 8,
+    "regex": "^[0-9]{8}$",
+    "ejemplo": "71234567",
+    "moneda": "BOB",
+    "simbolo": "Bs"
+  },
+  {
+    "pais": "Brasil",
+    "codigo": "+55",
+    "min": 11,
+    "max": 11,
+    "regex": "^[0-9]{11}$",
+    "ejemplo": "11912345678",
+    "moneda": "BRL",
+    "simbolo": "R$"
+  },
+  {
+    "pais": "Chile",
+    "codigo": "+56",
+    "min": 9,
+    "max": 9,
+    "regex": "^[0-9]{9}$",
+    "ejemplo": "912345678",
+    "moneda": "CLP",
+    "simbolo": "$"
+  },
+  {
+    "pais": "Colombia",
+    "codigo": "+57",
+    "min": 10,
+    "max": 10,
+    "regex": "^[0-9]{10}$",
+    "ejemplo": "3123456789",
+    "moneda": "COP",
+    "simbolo": "$"
+  },
+  {
+    "pais": "Ecuador",
+    "codigo": "+593",
+    "min": 9,
+    "max": 9,
+    "regex": "^[0-9]{9}$",
+    "ejemplo": "987654321",
+    "moneda": "USD",
+    "simbolo": "US$"
+  },
+  {
+    "pais": "Guyana",
+    "codigo": "+592",
+    "min": 7,
+    "max": 7,
+    "regex": "^[0-9]{7}$",
+    "ejemplo": "6123456",
+    "moneda": "GYD",
+    "simbolo": "G$"
+  },
+  {
+    "pais": "Paraguay",
+    "codigo": "+595",
+    "min": 9,
+    "max": 9,
+    "regex": "^[0-9]{9}$",
+    "ejemplo": "961234567",
+    "moneda": "PYG",
+    "simbolo": "₲"
+  },
+  {
+    "pais": "Perú",
+    "codigo": "+51",
+    "min": 9,
+    "max": 9,
+    "regex": "^[0-9]{9}$",
+    "ejemplo": "987654321",
+    "moneda": "PEN",
+    "simbolo": "S/"
+  },
+  {
+    "pais": "Surinam",
+    "codigo": "+597",
+    "min": 7,
+    "max": 7,
+    "regex": "^[0-9]{7}$",
+    "ejemplo": "7123456",
+    "moneda": "SRD",
+    "simbolo": "$"
+  },
+  {
+    "pais": "Uruguay",
+    "codigo": "+598",
+    "min": 8,
+    "max": 8,
+    "regex": "^[0-9]{8}$",
+    "ejemplo": "91234567",
+    "moneda": "UYU",
+    "simbolo": "$"
+  },
+  {
+    "pais": "Venezuela",
+    "codigo": "+58",
+    "min": 10,
+    "max": 10,
+    "regex": "^[0-9]{10}$",
+    "ejemplo": "4121234567",
+    "moneda": "VED",
+    "simbolo": "Bs."
+  },
+  {
+    "pais": "Estados Unidos",
+    "codigo": "+1",
+    "min": 10,
+    "max": 10,
+    "regex": "^[0-9]{10}$",
+    "ejemplo": "2125551234",
+    "moneda": "USD",
+    "simbolo": "US$"
+  },
+  {
+    "pais": "España",
+    "codigo": "+34",
+    "min": 9,
+    "max": 9,
+    "regex": "^[0-9]{9}$",
+    "ejemplo": "612345678",
+    "moneda": "EUR",
+    "simbolo": "€"
+  }
+]

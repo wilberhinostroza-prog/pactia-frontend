@@ -14,16 +14,23 @@ import {
 import { router, Href } from 'expo-router';
 import { Colors } from '../constants/Colors';
 import { login } from '../services/api';
+import { validators } from '../utils/validators';
 
 export default function LoginScreen() {
-  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
-    if (!identifier.trim()) {
-      Alert.alert('Error', 'Ingresa tu email o teléfono');
+    // Validar email
+    if (!email.trim()) {
+      Alert.alert('Error', 'Ingresa tu email');
+      return;
+    }
+
+    if (!validators.email(email)) {
+      Alert.alert('Error', 'Ingresa un email válido');
       return;
     }
 
@@ -34,7 +41,8 @@ export default function LoginScreen() {
 
     setIsLoading(true);
     try {
-      const user = await login(identifier, password);
+      // El login ahora solo recibe email (no teléfono)
+      const user = await login(email, password);
       
       if (user.profileComplete) {
         router.replace('/(tabs)/home' as Href);
@@ -61,15 +69,15 @@ export default function LoginScreen() {
 
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email o teléfono</Text>
+            <Text style={styles.label}>Email</Text>
             <TextInput
               style={styles.input}
-              placeholder="tu@email.com o 987654321"
+              placeholder="tu@email.com"
               placeholderTextColor={Colors.grisOscuro}
-              value={identifier}
-              onChangeText={setIdentifier}
+              value={email}
+              onChangeText={setEmail}
               autoCapitalize="none"
-              keyboardType="default"
+              keyboardType="email-address"
               editable={!isLoading}
             />
           </View>

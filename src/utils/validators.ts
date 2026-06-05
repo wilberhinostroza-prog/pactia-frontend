@@ -17,11 +17,6 @@ export const validators = {
     const cleanPhone = phone.replace(/\D/g, '');
     return /^\d{9}$/.test(cleanPhone);
   },
-  
-  /*// Contraseña
-  password: (password: string): boolean => {
-    return password.length >= CONFIG.VALIDATIONS.MIN_PASSWORD_LENGTH;
-  },*/
 
   // Validación de contraseña fuerte
 password: (password: string): boolean => {
@@ -35,11 +30,6 @@ getPasswordRequirements: (): string => {
   return 'Debe tener al menos 8 caracteres, una mayúscula, un número y un carácter especial (@$!%*?&)';
 },
   
- /* // Fecha formato YYYY-MM-DD
-  date: (date: string): boolean => {
-    return /^\d{4}-\d{2}-\d{2}$/.test(date);
-  },*/
-
   // Validar fecha real YYYY-MM-DD
   date: (date: string): boolean => {
   // Validar formato primero

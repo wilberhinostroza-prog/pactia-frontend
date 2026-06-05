@@ -10,22 +10,40 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { router, Href } from 'expo-router';
 import { Colors } from '../constants/Colors';
 import { getSession, completeProfile, getProfile } from '../services/api';
+import countryData from '../data/country-codes.json';
+
+interface Country {
+  pais: string;
+  codigo: string;
+  min: number;
+  max: number;
+  regex: string;
+  ejemplo: string;
+  moneda: string;   // ← Agregar
+  simbolo: string;  // ← Agregar
+}
 
 export default function CompleteProfileScreen() {
   const [email, setEmail] = useState<string>('');
   const [nombres, setNombres] = useState('');
   const [dni, setDni] = useState('');
-  const [phone, setPhone] = useState('');  // ← Cambiado de telefono a phone
+  const [phone, setPhone] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState<Country | null>(null);
+  const [countryModalVisible, setCountryModalVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
 
-  // Cargar email de la sesión al iniciar
   useEffect(() => {
     loadSession();
+    // Cargar país por defecto (Perú)
+    const defaultCountry = countryData.find(c => c.pais === 'Perú') || countryData[0];
+    setSelectedCountry(defaultCountry);
   }, []);
 
   const loadSession = async () => {
@@ -33,19 +51,24 @@ export default function CompleteProfileScreen() {
       const userEmail = await getSession();
       if (userEmail) {
         setEmail(userEmail);
-        // Opcional: cargar datos existentes si ya tiene perfil
         try {
           const profile = await getProfile(userEmail);
           if (profile.profileComplete) {
             setNombres(profile.nombres || '');
             setDni(profile.dni || '');
-            setPhone(profile.phone || '');
+            // Extraer solo el número si viene con código (simplificado)
+            const savedPhone = profile.phone || '';
+            const phoneMatch = savedPhone.match(/\d+$/);
+            if (phoneMatch) {
+              setPhone(phoneMatch[0]);
+            } else {
+              setPhone(savedPhone);
+            }
           }
         } catch (error) {
-          // Perfil no existe aún, está bien
+          // Perfil no existe aún
         }
       } else {
-        // No hay sesión, redirigir a registro
         Alert.alert('Sesión no encontrada', 'Por favor regístrate primero');
         router.replace('/register' as Href);
       }
@@ -56,20 +79,23 @@ export default function CompleteProfileScreen() {
     }
   };
 
-  // Validar DNI (8 dígitos para Perú)
   const isValidDNI = (dni: string) => {
     const dniRegex = /^[0-9]{8}$/;
     return dniRegex.test(dni);
   };
 
-  // Validar teléfono (9 dígitos para Perú)
-  const isValidPhone = (telefono: string) => {
-    const phoneRegex = /^[0-9]{9}$/;
-    return phoneRegex.test(telefono);
+  const isValidPhone = (phoneNumber: string, country: Country | null): boolean => {
+    if (!country) return false;
+    const phoneRegex = new RegExp(country.regex);
+    return phoneRegex.test(phoneNumber);
+  };
+
+  const getFullPhoneNumber = (): string => {
+    if (!selectedCountry) return phone;
+    return `${selectedCountry.codigo} ${phone}`;
   };
 
   const handleSubmit = async () => {
-    // Validaciones
     if (!nombres.trim()) {
       Alert.alert('Error', 'Por favor ingresa tus nombres completos');
       return;
@@ -85,19 +111,35 @@ export default function CompleteProfileScreen() {
       return;
     }
 
-    if (!isValidPhone(phone)) {
-      Alert.alert('Error', 'Teléfono inválido. Debe tener 9 dígitos');
+    if (!selectedCountry) {
+      Alert.alert('Error', 'Por favor selecciona tu país');
+      return;
+    }
+
+    if (!isValidPhone(phone, selectedCountry)) {
+      Alert.alert(
+        'Error', 
+        `Teléfono inválido para ${selectedCountry.pais}. Debe tener ${selectedCountry.min} dígitos.\nEjemplo: ${selectedCountry.ejemplo}`
+      );
       return;
     }
 
     setIsLoading(true);
 
     try {
-      await completeProfile(email, nombres.trim(), dni.trim(), phone.trim());
+      const cleanPhone = phone.replace(/\D/g, '');
+      await completeProfile(
+        email, 
+        nombres.trim(), 
+        dni.trim(), 
+        cleanPhone,  // ← solo dígitos
+        selectedCountry.moneda,
+        selectedCountry.simbolo
+      );
       
       Alert.alert(
         '¡Perfil completado!',
-        'Tu información ha sido guardada correctamente. Ahora puedes usar Pactia.',
+        `Tu información ha sido guardada correctamente.\nTeléfono: ${cleanPhone}`,
         [
           {
             text: 'Ir a la app',
@@ -111,6 +153,23 @@ export default function CompleteProfileScreen() {
       setIsLoading(false);
     }
   };
+
+  const renderCountryItem = ({ item }: { item: Country }) => (
+    <TouchableOpacity
+      style={[
+        styles.countryItem,
+        selectedCountry?.codigo === item.codigo && styles.countryItemSelected,
+      ]}
+      onPress={() => {
+        setSelectedCountry(item);
+        setCountryModalVisible(false);
+        setPhone('');
+      }}
+    >
+      <Text style={styles.countryName}>{item.pais}</Text>
+      <Text style={styles.countryCode}>{item.codigo}</Text>
+    </TouchableOpacity>
+  );
 
   if (isLoadingSession) {
     return (
@@ -176,22 +235,54 @@ export default function CompleteProfileScreen() {
             )}
           </View>
 
-          {/* Teléfono */}
+          {/* País y teléfono */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
-              Teléfono <Text style={styles.required}>*</Text>
+              País y teléfono <Text style={styles.required}>*</Text>
             </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="9 dígitos (ej: 987654321)"
-              placeholderTextColor={Colors.grisOscuro}
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              maxLength={9}
-            />
-            {phone.length > 0 && !isValidPhone(phone) && (
-              <Text style={styles.errorText}>El teléfono debe tener 9 dígitos</Text>
+            
+            <TouchableOpacity
+              style={styles.countrySelector}
+              onPress={() => setCountryModalVisible(true)}
+            >
+              <Text style={styles.countrySelectorText}>
+                {selectedCountry ? `${selectedCountry.pais} (${selectedCountry.codigo})` : 'Seleccionar país'}
+              </Text>
+              <Text style={styles.countrySelectorArrow}>▼</Text>
+            </TouchableOpacity>
+
+            <View style={styles.phoneRow}>
+              {selectedCountry && (
+                <View style={styles.countryCodeContainer}>
+                  <Text style={styles.countryCodeText}>{selectedCountry.codigo}</Text>
+                </View>
+              )}
+              <TextInput
+                style={[styles.input, styles.phoneInput]}
+                placeholder={selectedCountry ? `Ej: ${selectedCountry.ejemplo}` : 'Número de teléfono'}
+                placeholderTextColor={Colors.grisOscuro}
+                value={phone}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/\D/g, '');
+                  if (selectedCountry && cleaned.length <= selectedCountry.max) {
+                    setPhone(cleaned);
+                  } else if (!selectedCountry) {
+                    setPhone(cleaned.slice(0, 15));
+                  }
+                }}
+                keyboardType="numeric"
+              />
+            </View>
+
+            {selectedCountry && phone.length > 0 && !isValidPhone(phone, selectedCountry) && (
+              <Text style={styles.errorText}>
+                El número debe tener {selectedCountry.min} dígito{selectedCountry.min !== 1 ? 's' : ''} (ej: {selectedCountry.ejemplo})
+              </Text>
+            )}
+            {selectedCountry && (
+              <Text style={styles.hintText}>
+                {selectedCountry.pais}: {selectedCountry.min} dígito{selectedCountry.min !== 1 ? 's' : ''}
+              </Text>
             )}
           </View>
 
@@ -219,6 +310,31 @@ export default function CompleteProfileScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Modal para seleccionar país */}
+      <Modal
+        visible={countryModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setCountryModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Seleccionar país</Text>
+              <TouchableOpacity onPress={() => setCountryModalVisible(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={countryData}
+              keyExtractor={(item) => item.codigo}
+              renderItem={renderCountryItem}
+              showsVerticalScrollIndicator={false}
+            />
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -313,6 +429,49 @@ const styles = StyleSheet.create({
     color: Colors.rojoError,
     marginTop: 4,
   },
+  hintText: {
+    fontSize: 11,
+    color: Colors.grisOscuro,
+    marginTop: 4,
+  },
+  countrySelector: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.grisClaro,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  countrySelectorText: {
+    fontSize: 16,
+    color: Colors.azulMarino,
+  },
+  countrySelectorArrow: {
+    fontSize: 14,
+    color: Colors.grisOscuro,
+  },
+  phoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  countryCodeContainer: {
+    backgroundColor: Colors.grisClaro,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minWidth: 70,
+    alignItems: 'center',
+  },
+  countryCodeText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.verdeOlivo,
+  },
+  phoneInput: {
+    flex: 1,
+  },
   noteContainer: {
     backgroundColor: '#FFF3E0',
     padding: 12,
@@ -337,5 +496,56 @@ const styles = StyleSheet.create({
     color: Colors.blanco,
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: Colors.blanco,
+    borderRadius: 20,
+    width: '85%',
+    maxHeight: '80%',
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.grisClaro,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.azulMarino,
+  },
+  modalClose: {
+    fontSize: 20,
+    color: Colors.grisOscuro,
+    padding: 4,
+  },
+  countryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.grisClaro,
+  },
+  countryItemSelected: {
+    backgroundColor: Colors.verdeOlivo + '20',
+  },
+  countryName: {
+    fontSize: 16,
+    color: Colors.azulMarino,
+  },
+  countryCode: {
+    fontSize: 14,
+    color: Colors.verdeOlivo,
+    fontWeight: '600',
   },
 });

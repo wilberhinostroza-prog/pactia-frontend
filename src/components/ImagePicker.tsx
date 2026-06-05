@@ -9,8 +9,10 @@ import {
   Modal,
   ScrollView,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import * as ImagePickerLib from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Colors } from '../constants/Colors';
 import { useSharedFiles } from '../hooks/useSharedFiles';
 
@@ -26,6 +28,20 @@ interface ImagePickerProps {
 
 type TabType = 'camera' | 'gallery' | 'shared';
 
+// Configuración de compresión (similar a WhatsApp)
+const COMPRESSION_CONFIG = {
+  // Para imágenes estándar (comprobantes)
+  standard: {
+    maxWidth: 1600,      // 1600px en el lado más largo
+    quality: 0.2,        // Compresión 70%
+  },
+  // Para imágenes que requieren más calidad (opcional)
+  high: {
+    maxWidth: 1920,
+    quality: 0.85,
+  },
+};
+
 export const ImagePicker: React.FC<ImagePickerProps> = ({
   visible,
   onClose,
@@ -36,6 +52,7 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('camera');
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  const [isCompressing, setIsCompressing] = useState(false);
   
   const { sharedImages, loadSharedImages } = useSharedFiles();
 
@@ -55,6 +72,52 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
     });
   };
 
+  // Función para comprimir y redimensionar imagen
+  const compressImage = async (uri: string): Promise<string> => {
+    try {
+      setIsCompressing(true);
+      
+      // Obtener dimensiones originales
+      const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        Image.getSize(uri, (w, h) => resolve({ width: w, height: h }), reject);
+      });
+      
+      // Determinar el lado más largo
+      const isLandscape = dimensions.width >= dimensions.height;
+      const maxDimension = COMPRESSION_CONFIG.standard.maxWidth;
+      
+      let resize: { width?: number; height?: number } = {};
+      if (isLandscape) {
+        resize = { width: maxDimension };
+      } else {
+        resize = { height: maxDimension };
+      }
+      
+      // Aplicar redimensionamiento y compresión
+      const manipulatedImage = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize }],
+        {
+          compress: COMPRESSION_CONFIG.standard.quality,
+          format: ImageManipulator.SaveFormat.JPEG,
+        }
+      );
+      
+      console.log('✅ Imagen comprimida:', {
+        original: uri,
+        comprimida: manipulatedImage.uri,
+        tamañoOriginal: dimensions,
+      });
+      
+      return manipulatedImage.uri;
+    } catch (error) {
+      console.error('Error comprimiendo imagen:', error);
+      return uri; // Devolver original si falla la compresión
+    } finally {
+      setIsCompressing(false);
+    }
+  };
+
   const takePhoto = async () => {
     const { status } = await ImagePickerLib.requestCameraPermissionsAsync();
     if (status !== 'granted') {
@@ -70,8 +133,10 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      setSelectedImage(asset.uri);
-      getImageDimensions(asset.uri);
+      // Comprimir la imagen antes de usarla
+      const compressedUri = await compressImage(asset.uri);
+      setSelectedImage(compressedUri);
+      getImageDimensions(compressedUri);
     }
   };
 
@@ -90,8 +155,10 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      setSelectedImage(asset.uri);
-      getImageDimensions(asset.uri);
+      // Comprimir la imagen antes de usarla
+      const compressedUri = await compressImage(asset.uri);
+      setSelectedImage(compressedUri);
+      getImageDimensions(compressedUri);
     }
   };
 
@@ -128,6 +195,14 @@ export const ImagePicker: React.FC<ImagePickerProps> = ({
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>{title}</Text>
+
+          {/* Indicador de compresión */}
+          {isCompressing && (
+            <View style={styles.compressingOverlay}>
+              <ActivityIndicator size="large" color={Colors.verdeOlivo} />
+              <Text style={styles.compressingText}>Optimizando imagen...</Text>
+            </View>
+          )}
 
           {/* Selector de pestañas */}
           <View style={styles.tabContainer}>
@@ -418,5 +493,22 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     color: Colors.blanco,
     fontWeight: '600',
+  },
+  compressingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+    borderRadius: 20,
+  },
+  compressingText: {
+    marginTop: 12,
+    color: Colors.blanco,
+    fontSize: 14,
   },
 });
