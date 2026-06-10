@@ -1,10 +1,43 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { Colors } from '../constants/Colors';
-import { ROUTES } from '../types/routes';
+import { getSession, getUserByEmail } from '../services/api';
 
-export default function HomeScreen() {
+export default function WelcomeScreen() {
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    checkSession();
+  }, []);
+
+  const checkSession = async () => {
+    try {
+      const email = await getSession();
+      if (email) {
+        const user = await getUserByEmail(email);
+        if (user.profile_complete) {
+          router.replace('/(tabs)/home');
+        } else {
+          router.replace('/complete-profile');
+        }
+      }
+    } catch (error) {
+      console.error('Error checking session:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.verdeOlivo} />
+        <Text style={styles.loadingText}>Cargando...</Text>
+      </View>
+    );
+  }
+
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor={Colors.azulMarino} />
@@ -33,7 +66,7 @@ export default function HomeScreen() {
 
         <TouchableOpacity 
           style={styles.button} 
-          onPress={() => router.push(ROUTES.LOGIN as any)}
+          onPress={() => router.push('/login')}
         >
           <Text style={styles.buttonText}>Comenzar</Text>
         </TouchableOpacity>
@@ -52,6 +85,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.azulMarino,
     paddingHorizontal: 24,
     paddingVertical: 48,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: Colors.azulMarino,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: Colors.blanco,
+    fontSize: 16,
   },
   header: {
     marginTop: 20,

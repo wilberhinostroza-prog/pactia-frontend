@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as Linking from 'expo-linking';
-import { saveSharedImage, getSharedImages } from '../services/sharedFiles';
+import { saveSharedImage, getSharedImages } from '../utils/sharedFiles';
 
 export function useSharedFiles() {
   const [lastSharedImage, setLastSharedImage] = useState<string | null>(null);

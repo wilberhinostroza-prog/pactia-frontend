@@ -6,14 +6,16 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { Colors } from '../../constants/Colors';
-import { getSession, getUserByEmail, getAllUserContracts, Contract } from '../../services/api';
+import { getSession, getUserByEmail, getAllUserContracts } from '../../services/api';
+import { Contract } from '../../types';
 import { LoadingOverlay } from '../../components/LoadingOverlay';
 import { useAsync } from '../../hooks/useAsync';
 import { logger } from '../../utils/logger';
-import { normalizers } from '../../utils/validators';
 import { router } from 'expo-router';
+import { formatDateFromDB, formatTimestampToDate, formatDisplayDate } from '../../utils/dateHelper';
 
 const MODULE = 'HistoryScreen';
 
@@ -29,10 +31,12 @@ interface GroupedByRole {
 
 export default function HistoryScreen() {
   const [userPhone, setUserPhone] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedType, setExpandedType] = useState<string | null>(null);
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
+  const [currencySymbol, setCurrencySymbol] = useState<string>('S/');
 
   const { loading, execute: executeLoad } = useAsync({
     module: MODULE,
@@ -45,11 +49,22 @@ export default function HistoryScreen() {
     loadUserAndHistory();
   }, []);
 
+  // Función para formatear moneda con símbolo dinámico
+  const formatCurrency = (amount: number): string => {
+    if (!amount || amount === 0) return `${currencySymbol} 0.00`;
+    return `${currencySymbol} ${amount.toFixed(2)}`;
+  };
+
   const loadUserAndHistory = async () => {
     try {
       const email = await getSession();
       if (email) {
+        setUserEmail(email);
         const user = await getUserByEmail(email);
+        // Cargar símbolo de moneda
+        if (user.currency_symbol) {
+          setCurrencySymbol(user.currency_symbol);
+        }
         if (user && user.phone) {
           setUserPhone(user.phone);
           await loadHistory(user.phone);
@@ -114,10 +129,10 @@ export default function HistoryScreen() {
 
   // Función para obtener el icono del rol según el tipo de contrato
   const getRoleIcon = (contract: Contract, isDeudor: boolean): string => {
-  if (contract.type === 'prestamo') {
-    return isDeudor ? '📥' : '📤';
+    if (contract.type === 'prestamo') {
+      return isDeudor ? '📥' : '📤';
     } else {
-      return '🤝'; // Icono único para servicios
+      return '🤝';
     }
   };
 
@@ -136,7 +151,7 @@ export default function HistoryScreen() {
   // Agrupar por rol (deudor/acreedor)
   const groupByRole = (contracts: Contract[], userPhone: string): GroupedByRole => {
     return contracts.reduce((acc, contract) => {
-      if (contract.debtorPhone === userPhone) {
+      if (contract.debtor_phone === userPhone) {
         acc.deudor.push(contract);
       } else {
         acc.acreedor.push(contract);
@@ -148,7 +163,10 @@ export default function HistoryScreen() {
   // Calcular estadísticas por grupo de contratos
   const getStats = (contracts: Contract[]) => {
     const completedContracts = contracts.filter(c => c.status === 'pagado');
-    const totalAmount = completedContracts.reduce((sum, c) => sum + (c.approvedAmount || c.requestedAmount || 0), 0);
+    const totalAmount = completedContracts.reduce((sum: number, c: Contract) => {
+      const amount = c.approved_amount || c.requested_amount || 0;
+      return sum + amount;
+    }, 0);
     return { 
       count: contracts.length,
       completedCount: completedContracts.length,
@@ -168,22 +186,29 @@ export default function HistoryScreen() {
   // Función para obtener el nombre o teléfono de la contraparte
   const getCounterpartyDisplay = (contract: Contract, isDeudor: boolean): string => {
     if (isDeudor) {
-      return contract.creditorName || contract.creditorPhone;
+      return contract.creditor_name || contract.creditor_phone;
     } else {
-      return contract.debtorName || contract.debtorPhone;
+      return contract.debtor_name || contract.debtor_phone;
     }
   };
 
+  // Función para obtener el monto del contrato
+  const getContractAmount = (contract: Contract): number => {
+    return contract.approved_amount || contract.requested_amount || 0;
+  };
+
   const renderContractCard = (contract: Contract, userPhone: string) => {
-    const isDeudor = contract.debtorPhone === userPhone;
+    const debtorPhone = contract.debtor_phone;
+    const isDeudor = debtorPhone === userPhone;
     const counterpartyDisplay = getCounterpartyDisplay(contract, isDeudor);
-    const counterpartyPhone = isDeudor ? contract.creditorPhone : contract.debtorPhone;
-    const counterpartyName = isDeudor ? contract.creditorName : contract.debtorName;
     const roleText = getRoleText(contract, isDeudor);
     const roleIcon = getRoleIcon(contract, isDeudor);
     const counterpartyLabel = isDeudor 
       ? (contract.type === 'prestamo' ? 'Acreedor' : 'Proveedor')
       : (contract.type === 'prestamo' ? 'Deudor' : 'Cliente');
+    const amount = getContractAmount(contract);
+    const completedDate = contract.completed_at;
+    const createdDate = contract.created_at;
     
     return (
       <TouchableOpacity
@@ -206,9 +231,6 @@ export default function HistoryScreen() {
 
         <Text style={styles.counterparty}>
           {counterpartyLabel}: {counterpartyDisplay}
-          {counterpartyName && counterpartyName !== counterpartyPhone && (
-            <Text style={styles.counterpartyPhone}> ({counterpartyPhone})</Text>
-          )}
         </Text>
 
         <Text style={styles.description} numberOfLines={2}>
@@ -217,12 +239,14 @@ export default function HistoryScreen() {
 
         <View style={styles.contractFooter}>
           <Text style={styles.amount}>
-            Monto: {normalizers.currency(contract.requestedAmount)}
+            Monto: {formatCurrency(amount)}
           </Text>
           <Text style={styles.date}>
-            {contract.completedAt 
-              ? new Date(contract.completedAt).toLocaleDateString('es-PE')
-              : new Date(contract.createdAt).toLocaleDateString('es-PE')
+            {completedDate 
+              ? formatTimestampToDate(completedDate, contract.completed_date)
+              : createdDate 
+                ? formatTimestampToDate(createdDate, contract.created_date)
+                : 'Fecha no disponible'
             }
           </Text>
         </View>
@@ -262,7 +286,7 @@ export default function HistoryScreen() {
               <Text style={styles.roleCompleted}>✓ {stats.completedCount}</Text>
             )}
             {stats.totalAmount > 0 && (
-              <Text style={styles.roleTotal}>{normalizers.currency(stats.totalAmount)}</Text>
+              <Text style={styles.roleTotal}>{formatCurrency(stats.totalAmount)}</Text>
             )}
             <Text style={styles.roleExpandIcon}>{isExpanded ? '▲' : '▼'}</Text>
           </View>
@@ -310,7 +334,7 @@ export default function HistoryScreen() {
               <Text style={styles.typeCompleted}>✓ {stats.completedCount}</Text>
             )}
             {stats.totalAmount > 0 && (
-              <Text style={styles.typeTotal}>{normalizers.currency(stats.totalAmount)}</Text>
+              <Text style={styles.typeTotal}>{formatCurrency(stats.totalAmount)}</Text>
             )}
             <Text style={styles.typeExpandIcon}>{isExpanded ? '▲' : '▼'}</Text>
           </View>
@@ -347,6 +371,7 @@ export default function HistoryScreen() {
   if (loading && contracts.length === 0) {
     return (
       <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.verdeOlivo} />
         <Text style={styles.loadingText}>Cargando historial...</Text>
       </View>
     );

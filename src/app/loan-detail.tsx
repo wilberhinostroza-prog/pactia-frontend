@@ -10,12 +10,14 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Colors } from '../constants/Colors';
-import { getContractById, verifyContractOnAlgorand } from '../services/api';
+import { getContractById, verifyContractOnAlgorand, getSession, getUserByEmail } from '../services/api';
 import { LoadingOverlay } from '../components/LoadingOverlay';
 import { ErrorToast } from '../components/ErrorToast';
 import { useAsync } from '../hooks/useAsync';
 import { normalizers } from '../utils/validators';
 import { logger } from '../utils/logger';
+import { User } from '../types';
+import { formatDateFromDB, formatTimestampToDate, formatTimestampToDateTime, formatDisplayDate } from '../utils/dateHelper';
 
 const MODULE = 'LoanDetailScreen';
 
@@ -24,6 +26,8 @@ export default function LoanDetailScreen() {
   const [contract, setContract] = useState<any>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currencySymbol, setCurrencySymbol] = useState<string>('S/');
 
   const { loading, execute: executeLoad } = useAsync({
     module: MODULE,
@@ -36,7 +40,9 @@ export default function LoanDetailScreen() {
   const { loading: verifying, execute: executeVerify } = useAsync({
     module: MODULE,
     onSuccess: (result) => {
-      Linking.openURL(result.explorerUrl);
+      if (result?.explorerUrl) {
+        Linking.openURL(result.explorerUrl);
+      }
     },
     onError: (error) => {
       setToastMessage(error.message || 'Error al verificar en blockchain');
@@ -45,10 +51,29 @@ export default function LoanDetailScreen() {
   });
 
   useEffect(() => {
+    loadCurrentUser();
+  }, []);
+
+  useEffect(() => {
     if (contractId) {
       loadContractDetails();
     }
   }, [contractId]);
+
+  const loadCurrentUser = async () => {
+    try {
+      const email = await getSession();
+      if (email) {
+        const user = await getUserByEmail(email);
+        setCurrentUser(user);
+        if (user.currency_symbol) {
+          setCurrencySymbol(user.currency_symbol);
+        }
+      }
+    } catch (error) {
+      logger.error(MODULE, 'Error cargando usuario actual', error);
+    }
+  };
 
   const loadContractDetails = async () => {
     const contractData = await executeLoad(getContractById(contractId as string), 'Cargando detalles');
@@ -59,13 +84,14 @@ export default function LoanDetailScreen() {
   };
 
   const handleVerifyBlockchain = async () => {
-    if (!contract?.algorandTxId) {
+    const txId = contract?.algorandTxId || contract?.algorand_tx_id;
+    if (!txId) {
       setToastMessage('Este contrato no tiene registro en blockchain');
       setToastVisible(true);
       return;
     }
     await executeVerify(
-      verifyContractOnAlgorand(contract.id, contract.algorandTxId),
+      verifyContractOnAlgorand(contract.id, txId),
       'Verificando en blockchain'
     );
   };
@@ -92,9 +118,21 @@ export default function LoanDetailScreen() {
     }
   };
 
+  // Obtener campo de forma segura (soporta snake_case y camelCase)
+  const getField = (obj: any, camelField: string, snakeField: string): any => {
+    return obj[camelField] !== undefined ? obj[camelField] : obj[snakeField];
+  };
+
+  // Obtener monto original (aprobado o solicitado)
+  const getOriginalAmount = (contract: any): number => {
+    const approved = getField(contract, 'approvedAmount', 'approved_amount');
+    const requested = getField(contract, 'requestedAmount', 'requested_amount');
+    return approved || requested || 0;
+  };
+
   // Función para obtener el saldo real basado SOLO en pagos confirmados
   const getRealRemainingAmount = (contract: any): number => {
-    const originalAmount = contract.approvedAmount || contract.requestedAmount || 0;
+    const originalAmount = getOriginalAmount(contract);
     const confirmedTotal = contract.payments
       ?.filter((p: any) => p.confirmed)
       .reduce((sum: number, p: any) => sum + p.amount, 0) || 0;
@@ -106,6 +144,25 @@ export default function LoanDetailScreen() {
     return contract.payments
       ?.filter((p: any) => p.confirmed)
       .reduce((sum: number, p: any) => sum + p.amount, 0) || 0;
+  };
+
+  // Formatear moneda con símbolo dinámico
+  const formatCurrency = (amount: number): string => {
+    return `${currencySymbol} ${amount.toFixed(2)}`;
+  };
+
+  // Formatear fecha
+  const formatDate = (dateString: string): string => {
+    if (!dateString) return 'No especificada';
+    try {
+      return new Date(dateString).toLocaleDateString('es-PE', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch {
+      return dateString;
+    }
   };
 
   if (loading) {
@@ -131,6 +188,14 @@ export default function LoanDetailScreen() {
 
   const totalPaid = getConfirmedTotalPaid(contract);
   const remaining = getRealRemainingAmount(contract);
+  const depositProofUri = getField(contract, 'depositProofUri', 'deposit_proof_uri');
+  const depositProofFileName = getField(contract, 'depositProofFileName', 'deposit_proof_file_name');
+  const depositProofDate = getField(contract, 'depositProofDate', 'deposit_proof_date');
+  const approvedAmount = getField(contract, 'approvedAmount', 'approved_amount');
+  const approvedDueDate = getField(contract, 'approvedDueDate', 'approved_due_date');
+  const createdAt = getField(contract, 'createdAt', 'created_at');
+  const completedAt = getField(contract, 'completedAt', 'completed_at');
+  const txId = getField(contract, 'algorandTxId', 'algorand_tx_id');
 
   return (
     <>
@@ -151,7 +216,7 @@ export default function LoanDetailScreen() {
         {/* Tipo de contrato */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>
-            {contract.type === 'prestamo' ? '💰 Préstamo' : '🛠️ Servicio'}
+            {contract.type === 'prestamo' ? '💰 Préstamo' : '🤝 Servicio'}
           </Text>
         </View>
 
@@ -161,13 +226,13 @@ export default function LoanDetailScreen() {
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Deudor:</Text>
             <Text style={styles.infoValue}>
-              {contract.debtorName ? `${contract.debtorName} (${contract.debtorPhone})` : contract.debtorPhone}
+              {contract.debtor_name || contract.debtorName || contract.debtor_phone || contract.debtorPhone}
             </Text>
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Acreedor:</Text>
             <Text style={styles.infoValue}>
-              {contract.creditorName ? `${contract.creditorName} (${contract.creditorPhone})` : contract.creditorPhone}
+              {contract.creditor_name || contract.creditorName || contract.creditor_phone || contract.creditorPhone}
             </Text>
           </View>
         </View>
@@ -183,69 +248,88 @@ export default function LoanDetailScreen() {
           <Text style={styles.cardTitle}>💰 Montos</Text>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Monto solicitado:</Text>
-            <Text style={styles.infoValue}>{normalizers.currency(contract.requestedAmount)}</Text>
+            <Text style={styles.infoValue}>{formatCurrency(contract.requested_amount || contract.requestedAmount || 0)}</Text>
           </View>
-          {contract.approvedAmount && (
+          {approvedAmount && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Monto aprobado:</Text>
-              <Text style={styles.infoValueBold}>{normalizers.currency(contract.approvedAmount)}</Text>
+              <Text style={styles.infoValueBold}>{formatCurrency(approvedAmount)}</Text>
             </View>
           )}
           <View style={styles.divider} />
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Total pagado (confirmado):</Text>
-            <Text style={styles.infoValueSuccess}>{normalizers.currency(totalPaid)}</Text>
+            <Text style={styles.infoValueSuccess}>{formatCurrency(totalPaid)}</Text>
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Saldo pendiente:</Text>
-            <Text style={styles.infoValueBold}>{normalizers.currency(remaining > 0 ? remaining : 0)}</Text>
+            <Text style={styles.infoValueBold}>{formatCurrency(remaining > 0 ? remaining : 0)}</Text>
           </View>
         </View>
 
         {/* Fechas */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>📅 Fechas</Text>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Fecha propuesta:</Text>
-            <Text style={styles.infoValue}>{contract.proposedDueDate}</Text>
-          </View>
-          {contract.approvedDueDate && (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Fecha acordada:</Text>
-              <Text style={styles.infoValueBold}>{contract.approvedDueDate}</Text>
-            </View>
-          )}
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Creado:</Text>
-            <Text style={styles.infoValue}>{new Date(contract.createdAt).toLocaleDateString('es-PE')}</Text>
-          </View>
-          {contract.completedAt && (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Completado:</Text>
-              <Text style={styles.infoValue}>{new Date(contract.completedAt).toLocaleDateString('es-PE')}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Comprobante de depósito del acreedor */}
-{(contract.depositProofUri || contract.deposit_proof_uri) && (
-  <View style={styles.card}>
-    <Text style={styles.cardTitle}>🏦 Comprobante de depósito</Text>
-    <Text style={styles.depositInfo}>
-      El acreedor realizó el depósito el: {new Date(contract.depositProofDate || contract.deposit_proof_date).toLocaleDateString('es-PE')}
+       
+<View style={styles.card}>
+  <Text style={styles.cardTitle}>📅 Fechas</Text>
+  <View style={styles.infoRow}>
+    <Text style={styles.infoLabel}>Fecha propuesta:</Text>
+    <Text style={styles.infoValue}>
+      {formatDateFromDB(contract.proposed_due_date || contract.proposedDueDate)}
     </Text>
+  </View>
+  {approvedDueDate && (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>Fecha acordada:</Text>
+      <Text style={styles.infoValueBold}>
+        {formatDateFromDB(approvedDueDate)}
+      </Text>
+    </View>
+  )}
+  <View style={styles.infoRow}>
+    <Text style={styles.infoLabel}>Creado:</Text>
+    <Text style={styles.infoValue}>
+      {formatTimestampToDate(createdAt, contract.created_date)}
+    </Text>
+  </View>
+  {completedAt && (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>Completado:</Text>
+      <Text style={styles.infoValue}>
+        {formatTimestampToDate(completedAt, contract.completed_date)}
+      </Text>
+    </View>
+  )}
+</View>
+
+       {/* Comprobante de depósito / Evidencia del servicio */}
+{depositProofUri && (
+  <View style={styles.card}>
+    <Text style={styles.cardTitle}>
+      {contract?.type === 'prestamo' ? '🏦 Comprobante de depósito' : '📎 Evidencia del servicio'}
+    </Text>
+    {depositProofDate && (
+      <Text style={styles.depositInfo}>
+        {contract?.type === 'prestamo' 
+          ? 'El acreedor realizó el depósito el: ' 
+          : 'La evidencia fue subida el: '}
+        {formatTimestampToDate(depositProofDate, contract?.deposit_proof_date_only)}
+      </Text>
+    )}
     <TouchableOpacity
       style={styles.viewProofButton}
       onPress={() => {
-        const uri = contract.depositProofUri || contract.deposit_proof_uri;
-        const fileName = contract.depositProofFileName || contract.deposit_proof_file_name || 'comprobante-deposito';
         router.push({
           pathname: '/view-proof',
-          params: { uri, fileName }
+          params: { 
+            uri: depositProofUri, 
+            fileName: depositProofFileName || (contract?.type === 'prestamo' ? 'comprobante-deposito' : 'evidencia-servicio')
+          }
         });
       }}
     >
-      <Text style={styles.viewProofText}>📎 Ver comprobante de depósito</Text>
+      <Text style={styles.viewProofText}>
+        {contract?.type === 'prestamo' ? '📎 Ver comprobante de depósito' : '📎 Ver evidencia del servicio'}
+      </Text>
     </TouchableOpacity>
   </View>
 )}
@@ -263,11 +347,14 @@ export default function LoanDetailScreen() {
                   </Text>
                 </View>
                 <View style={styles.paymentDetails}>
-                  <Text style={styles.paymentAmount}>S/ {payment.amount.toFixed(2)}</Text>
-                  <Text style={styles.paymentDate}>
-                    {new Date(payment.date).toLocaleDateString('es-PE')} - {new Date(payment.date).toLocaleTimeString('es-PE')}
-                  </Text>
-                </View>
+  <Text style={styles.paymentAmount}>{formatCurrency(payment.amount)}</Text>
+  <Text style={styles.paymentDate}>
+    {payment.payment_date 
+      ? formatDateFromDB(payment.payment_date)
+      : formatTimestampToDateTime(payment.date)
+    }
+  </Text>
+</View>
                 
                 {/* Indicador de estado de confirmación */}
                 <View style={styles.paymentStatus}>
@@ -276,13 +363,13 @@ export default function LoanDetailScreen() {
                   </Text>
                 </View>
                 
-                {payment.proofUri && (
+                {payment.proof_uri && (
                   <TouchableOpacity
                     style={styles.viewProofButton}
                     onPress={() => {
                       router.push({
                         pathname: '/view-proof',
-                        params: { uri: payment.proofUri, fileName: payment.proofFileName || 'comprobante' }
+                        params: { uri: payment.proof_uri, fileName: payment.proof_file_name || 'comprobante' }
                       });
                     }}
                   >
@@ -296,19 +383,19 @@ export default function LoanDetailScreen() {
           )}
         </View>
 
-        {/* Blockchain */}
-        {/*contract.algorandTxId && (
+        {/* Blockchain - Solo mostrar si hay transacción */}
+        {txId && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>🔗 Blockchain</Text>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Transaction ID:</Text>
-              <Text style={styles.txId} numberOfLines={1}>{contract.algorandTxId}</Text>
+              <Text style={styles.txId} numberOfLines={1}>{txId}</Text>
             </View>
             <TouchableOpacity style={styles.verifyButton} onPress={handleVerifyBlockchain}>
               <Text style={styles.verifyButtonText}>Ver en explorador</Text>
             </TouchableOpacity>
           </View>
-        )*/}
+        )}
 
         {/* Botón volver */}
         <TouchableOpacity style={styles.backButtonFull} onPress={() => router.back()}>
@@ -403,7 +490,7 @@ const styles = StyleSheet.create({
   infoLabel: {
     fontSize: 14,
     color: Colors.grisOscuro,
-    width: 100,
+    width: 110,
   },
   infoValue: {
     fontSize: 14,

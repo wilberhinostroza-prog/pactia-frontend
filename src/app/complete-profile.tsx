@@ -25,8 +25,8 @@ interface Country {
   max: number;
   regex: string;
   ejemplo: string;
-  moneda: string;   // ← Agregar
-  simbolo: string;  // ← Agregar
+  moneda: string;
+  simbolo: string;
 }
 
 export default function CompleteProfileScreen() {
@@ -53,7 +53,7 @@ export default function CompleteProfileScreen() {
         setEmail(userEmail);
         try {
           const profile = await getProfile(userEmail);
-          if (profile.profileComplete) {
+          if (profile.profile_complete) {
             setNombres(profile.nombres || '');
             setDni(profile.dni || '');
             // Extraer solo el número si viene con código (simplificado)
@@ -128,18 +128,21 @@ export default function CompleteProfileScreen() {
 
     try {
       const cleanPhone = phone.replace(/\D/g, '');
+      
+      // 🔥 MODIFICACIÓN AQUÍ: Enviar país, moneda y símbolo
       await completeProfile(
         email, 
         nombres.trim(), 
         dni.trim(), 
-        cleanPhone,  // ← solo dígitos
-        selectedCountry.moneda,
-        selectedCountry.simbolo
+        cleanPhone,
+        selectedCountry.pais,      // ← AGREGAR: nombre del país
+        selectedCountry.moneda,    // ← Ya estaba
+        selectedCountry.simbolo    // ← Ya estaba
       );
       
       Alert.alert(
         '¡Perfil completado!',
-        `Tu información ha sido guardada correctamente.\nTeléfono: ${cleanPhone}`,
+        `Tu información ha sido guardada correctamente.\nPaís: ${selectedCountry.pais}\nTeléfono: ${cleanPhone}`,
         [
           {
             text: 'Ir a la app',

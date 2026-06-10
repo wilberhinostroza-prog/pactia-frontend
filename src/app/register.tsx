@@ -158,11 +158,17 @@ export default function RegisterScreen() {
 
   const { loading: registering, execute: executeRegister } = useAsync({
     module: MODULE,
-    onSuccess: () => {
+    onSuccess: (user) => {
       logger.success(MODULE, 'Usuario registrado exitosamente', { email });
+      if (user && user.profile_complete) {
       Alert.alert('Éxito', 'Cuenta creada correctamente', [
-        { text: 'Continuar', onPress: () => router.push(ROUTES.COMPLETE_PROFILE as any) }
+        { text: 'Continuar', onPress: () => router.push('/(tabs)/home' as any) }
       ]);
+    } else {
+      Alert.alert('Éxito', 'Cuenta creada correctamente', [
+        { text: 'Completar perfil', onPress: () => router.push('/complete-profile' as any) }
+      ]);
+    }
     },
     onError: (error) => {
       setToastMessage(error.message || 'No se pudo registrar');
@@ -229,7 +235,8 @@ export default function RegisterScreen() {
       return;
     }
 
-    await executeRegister(register(cleanEmail, password), 'Registrando usuario');
+    const user = await register(cleanEmail, password);
+    await executeRegister(Promise.resolve(user), 'Registrando usuario');
   };
 
   return (

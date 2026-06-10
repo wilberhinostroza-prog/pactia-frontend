@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Colors } from '../constants/Colors';
-import { ensureSharedFolder } from '../services/sharedFiles';
+import { ensureSharedFolder } from '../utils/sharedFiles';
 //import { useNotifications } from '../hooks/useNotifications';
 
 export default function RootLayout() {

@@ -41,10 +41,10 @@ export default function LoginScreen() {
 
     setIsLoading(true);
     try {
-      // El login ahora solo recibe email (no teléfono)
       const user = await login(email, password);
       
-      if (user.profileComplete) {
+      // CORREGIDO: usar profile_complete (con guión bajo)
+      if (user.profile_complete) {
         router.replace('/(tabs)/home' as Href);
       } else {
         router.replace('/complete-profile' as Href);

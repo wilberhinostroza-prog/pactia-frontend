@@ -18,9 +18,12 @@ import { useAsync } from '../../hooks/useAsync';
 import { logger } from '../../utils/logger';
 import { ContactPicker } from '../../components/ContactPicker';
 import { DatePicker } from '../../components/DatePicker';
+import countryCodes from '../../data/country-codes.json';
+import { User } from '../../types';
+import { formatDateForDB } from '../../utils/dateHelper';
 
 const MODULE = 'RequestLoanScreen';
-const FREE_SERVICE_LIMIT = 4;
+const FREE_SERVICE_LIMIT = 10;
 
 type ContractType = 'prestamo' | 'servicio';
 
@@ -39,6 +42,13 @@ export default function RequestLoanScreen() {
   const [toastType, setToastType] = useState<'error' | 'success'>('error');
   const [contactPickerVisible, setContactPickerVisible] = useState(false);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
+  
+  // Estados para validación de teléfono por país
+  const [phoneMinLength, setPhoneMinLength] = useState<number>(9);
+  const [phoneMaxLength, setPhoneMaxLength] = useState<number>(9);
+  const [userCountryName, setUserCountryName] = useState<string>('Perú');
+  const [userCountryCode, setUserCountryCode] = useState<string>('+51');
+  const [userCurrencySymbol, setUserCurrencySymbol] = useState<string>('S/');
 
   // Modal de límite de servicios
   const [serviceLimitModalVisible, setServiceLimitModalVisible] = useState(false);
@@ -90,12 +100,68 @@ export default function RequestLoanScreen() {
     loadUserData();
   }, []);
 
+  // Función para cargar reglas de validación según el país
+  const loadPhoneValidationRules = (countryName: string) => {
+    try {
+      const countryData = countryCodes.find(
+        (c: any) => c.pais === countryName
+      );
+      
+      if (countryData) {
+        setPhoneMinLength(countryData.min);
+        setPhoneMaxLength(countryData.max);
+        setUserCountryCode(countryData.codigo);
+        logger.info(MODULE, `Reglas cargadas para ${countryName}: ${countryData.min} dígitos, código: ${countryData.codigo}`);
+      } else {
+        // Si no encuentra el país, usa valores por defecto (Perú)
+        logger.warn(MODULE, `País no encontrado: ${countryName}, usando defaults (9 dígitos)`);
+        setPhoneMinLength(9);
+        setPhoneMaxLength(9);
+        setUserCountryCode('+51');
+      }
+    } catch (error) {
+      logger.error(MODULE, 'Error cargando reglas de validación', error);
+      setPhoneMinLength(9);
+      setPhoneMaxLength(9);
+      setUserCountryCode('+51');
+    }
+  };
+
+  // Función para cargar moneda del usuario
+  const loadUserCurrency = (currencySymbol?: string) => {
+    if (currencySymbol) {
+      setUserCurrencySymbol(currencySymbol);
+    } else {
+      setUserCurrencySymbol('S/');
+    }
+  };
+
+  // Función modificada: carga datos del usuario incluyendo su país
   const loadUserData = async () => {
     const email = await getSession();
     if (email) {
       setUserEmail(email);
-      const user = await getUserByEmail(email);
+      const user = await getUserByEmail(email) as User;
       setUserPhone(user.phone);
+      
+       // Cargar moneda del usuario
+        if (user.currency_symbol) {
+        setUserCurrencySymbol(user.currency_symbol);
+        } else {
+          setUserCurrencySymbol('S/');
+        }
+      
+      /// Cargar reglas de validación según el país del usuario (desde Supabase)
+        if (user.country && user.country.trim() !== '') {
+          setUserCountryName(user.country);
+          loadPhoneValidationRules(user.country);
+        } else {
+            // Fallback: usar Perú por defecto
+          logger.warn(MODULE, 'Usuario sin país en Supabase, usando Perú por defecto');
+          setUserCountryName('Perú');
+          loadPhoneValidationRules('Perú');
+        }
+      
       const sub = await getSubscription(email);
       setSubscription(sub);
     }
@@ -103,8 +169,8 @@ export default function RequestLoanScreen() {
 
   // Verificar límite de servicios antes de enviar solicitud
   const checkServiceLimit = async (): Promise<boolean> => {
-    if (contractType !== 'servicio') return true; // Solo para servicios
-    if (subscription.active) return true; // Suscriptor puede todos
+    if (contractType !== 'servicio') return true;
+    if (subscription.active) return true;
     
     try {
       const result = await canRequestService(userPhone);
@@ -116,13 +182,14 @@ export default function RequestLoanScreen() {
       return true;
     } catch (error) {
       logger.error(MODULE, 'Error verificando límite', error);
-      return true; // En caso de error, permitir (mejor que bloquear por error)
+      return true;
     }
   };
 
+  // Función modificada: valida usando phoneMinLength
   const handleSearchCreditor = async () => {
-    if (!creditorPhone || creditorPhone.length !== 9) {
-      setToastMessage('Ingresa un teléfono válido de 9 dígitos');
+    if (!creditorPhone || creditorPhone.length !== phoneMinLength) {
+      setToastMessage(`Ingresa un teléfono válido de ${phoneMinLength} dígitos`);
       setToastType('error');
       setToastVisible(true);
       return;
@@ -147,7 +214,6 @@ export default function RequestLoanScreen() {
         return;
       }
     } else {
-      // Para servicios, el monto es obligatorio
       const amountNum = parseFloat(amount);
       if (isNaN(amountNum) || amountNum <= 0) {
         setToastMessage('Ingresa el monto del servicio');
@@ -171,11 +237,11 @@ export default function RequestLoanScreen() {
       return;
     }
 
-    // Verificar límite de servicios (solo para servicios)
     const canProceed = await checkServiceLimit();
     if (!canProceed) return;
 
     const amountNum = parseFloat(amount);
+    const dueDateForDB = formatDateForDB(dueDate);
     
     await executeRequest(
       requestLoan(
@@ -183,27 +249,23 @@ export default function RequestLoanScreen() {
         userPhone, 
         creditorPhone, 
         amountNum, 
-        dueDate, 
+        dueDateForDB, 
         description.trim()
       ),
       'Enviando solicitud'
     );
   };
 
-  // Función para manejar selección de contacto
   const handleSelectContact = (phoneNumber: string, name: string) => {
     setCreditorPhone(phoneNumber);
     setCreditorName('');
-    // Opcional: buscar automáticamente el contacto seleccionado
     executeSearch(findUserByPhone(phoneNumber), 'Buscando usuario');
   };
 
-  // Función para manejar selección de fecha
   const handleDateConfirm = (date: Date, formattedDate: string) => {
     setDueDate(formattedDate);
   };
 
-  // Actualizar suscripción
   const handleUpgradeSubscription = async (plan: 'monthly' | 'yearly') => {
     setUpgrading(true);
     try {
@@ -225,7 +287,7 @@ export default function RequestLoanScreen() {
     }
   };
 
-  // Modal de límite de servicios
+  // Modales (sin cambios)
   const ServiceLimitModal = () => (
     <Modal
       animationType="slide"
@@ -266,7 +328,6 @@ export default function RequestLoanScreen() {
     </Modal>
   );
 
-  // Modal de suscripción
   const SubscriptionModal = () => (
     <Modal
       animationType="slide"
@@ -349,7 +410,6 @@ export default function RequestLoanScreen() {
       <ServiceLimitModal />
       <SubscriptionModal />
       
-      {/* Selector de contactos */}
       <ContactPicker
         visible={contactPickerVisible}
         onClose={() => setContactPickerVisible(false)}
@@ -357,7 +417,6 @@ export default function RequestLoanScreen() {
         title="Seleccionar contacto"
       />
 
-      {/* Selector de fecha con calendario */}
       <DatePicker
         visible={datePickerVisible}
         onClose={() => setDatePickerVisible(false)}
@@ -370,7 +429,6 @@ export default function RequestLoanScreen() {
         <Text style={styles.title}>Nueva solicitud</Text>
         <Text style={styles.subtitle}>¿Qué tipo de acuerdo deseas?</Text>
 
-        {/* Indicador de plan */}
         <View style={styles.planIndicator}>
           <Text style={styles.planIndicatorText}>
             {subscription.active 
@@ -379,7 +437,6 @@ export default function RequestLoanScreen() {
           </Text>
         </View>
 
-        {/* Selector de tipo: Préstamo o Servicio */}
         <View style={styles.typeSelector}>
           <TouchableOpacity
             style={[
@@ -419,21 +476,25 @@ export default function RequestLoanScreen() {
         </View>
 
         <View style={styles.form}>
-          {/* Teléfono del contacto */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Teléfono de la otra persona *</Text>
             <View style={styles.row}>
+              <View style={styles.countryCodeContainer}>
+                <Text style={styles.countryCodeText}>{userCountryCode}</Text>
+              </View>
               <TextInput
                 style={[styles.input, styles.phoneInput]}
-                placeholder="987654321"
+                placeholder={`Ej: ${phoneMinLength} dígitos`}
                 placeholderTextColor={Colors.grisOscuro}
                 value={creditorPhone}
                 onChangeText={(text) => {
-                  setCreditorPhone(text.replace(/\D/g, '').slice(0, 9));
+                  const cleaned = text.replace(/\D/g, '');
+                  const limited = cleaned.slice(0, phoneMaxLength);
+                  setCreditorPhone(limited);
                   setCreditorName('');
                 }}
                 keyboardType="numeric"
-                maxLength={9}
+                maxLength={phoneMaxLength}
               />
               <TouchableOpacity
                 style={styles.contactsButton}
@@ -444,26 +505,38 @@ export default function RequestLoanScreen() {
               <TouchableOpacity
                 style={styles.searchButton}
                 onPress={handleSearchCreditor}
-                disabled={searching || creditorPhone.length !== 9}
+                disabled={searching || creditorPhone.length !== phoneMinLength}
               >
-                <Text style={styles.searchButtonText}>Buscar</Text>
+                <Text style={styles.searchButtonText}>🔍</Text>
               </TouchableOpacity>
             </View>
+            
+            <Text style={styles.phoneHint}>
+              {creditorPhone.length > 0 && creditorPhone.length < phoneMinLength && (
+                <Text style={styles.phoneHintError}>⚠️ Debe tener {phoneMinLength} dígitos</Text>
+              )}
+              {creditorPhone.length === phoneMinLength && (
+                <Text style={styles.phoneHintSuccess}>✓ Longitud correcta</Text>
+              )}
+              {creditorPhone.length > phoneMinLength && creditorPhone.length <= phoneMaxLength && (
+                <Text style={styles.phoneHintInfo}>📱 {creditorPhone.length}/{phoneMaxLength} dígitos</Text>
+              )}
+            </Text>
+            
             {creditorName ? (
               <Text style={styles.foundText}>✓ {creditorName}</Text>
-            ) : creditorPhone.length === 9 ? (
+            ) : creditorPhone.length === phoneMinLength ? (
               <Text style={styles.notFoundText}>✗ Usuario no encontrado</Text>
             ) : null}
           </View>
 
-          {/* Monto - PARA AMBOS TIPOS */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
-              {contractType === 'prestamo' ? 'Monto (S/) *' : 'Monto del servicio (S/) *'}
+              {contractType === 'prestamo' ? `Monto (${userCurrencySymbol}) *` : `Monto del servicio (${userCurrencySymbol}) *`}
             </Text>
             <TextInput
               style={styles.input}
-              placeholder="0.00"
+              placeholder={`0.00`}
               placeholderTextColor={Colors.grisOscuro}
               value={amount}
               onChangeText={setAmount}
@@ -471,7 +544,6 @@ export default function RequestLoanScreen() {
             />
           </View>
 
-          {/* Descripción */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
               {contractType === 'prestamo' ? 'Motivo del préstamo *' : 'Descripción del servicio *'}
@@ -489,7 +561,6 @@ export default function RequestLoanScreen() {
             />
           </View>
 
-          {/* Fecha propuesta con calendario */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
               {contractType === 'prestamo' ? 'Fecha propuesta de pago *' : 'Fecha propuesta para el servicio *'}
@@ -617,6 +688,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
+  countryCodeContainer: {
+    backgroundColor: Colors.verdeOlivo + '20',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  countryCodeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.verdeOlivo,
+  },
   phoneInput: {
     flex: 1,
   },
@@ -633,12 +717,12 @@ const styles = StyleSheet.create({
   searchButton: {
     backgroundColor: Colors.verdeOlivo,
     borderRadius: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     justifyContent: 'center',
   },
   searchButtonText: {
+    fontSize: 18,
     color: Colors.blanco,
-    fontWeight: '600',
   },
   foundText: {
     color: Colors.verdeExito,
@@ -649,6 +733,20 @@ const styles = StyleSheet.create({
     color: Colors.rojoError,
     fontSize: 12,
     marginTop: 4,
+  },
+  phoneHint: {
+    fontSize: 11,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  phoneHintError: {
+    color: Colors.rojoError,
+  },
+  phoneHintSuccess: {
+    color: Colors.verdeExito,
+  },
+  phoneHintInfo: {
+    color: Colors.grisOscuro,
   },
   dateButton: {
     flexDirection: 'row',
@@ -690,7 +788,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-  // Modales
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

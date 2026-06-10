@@ -10,22 +10,15 @@ import {
 } from 'react-native';
 import { router, Href } from 'expo-router';
 import { Colors } from '../../constants/Colors';
-import { getSession, getUserByEmail, clearSession, getAllUserContracts, Contract } from '../../services/api';
-import { normalizers } from '../../utils/validators';
-//import { schedulePaymentReminder, cancelAllNotifications } from '../../hooks/useNotifications';
+import { getSession, getUserByEmail, clearSession, getAllUserContracts } from '../../services/api';
+import { Contract } from '../../types';
 
-// Función para obtener el saldo real basado SOLO en pagos confirmados
-const getRealRemainingAmount = (contract: Contract): number => {
-  const originalAmount = contract.approvedAmount || contract.requestedAmount || 0;
-  const confirmedTotal = contract.payments
-    ?.filter(p => p.confirmed)
-    .reduce((sum, p) => sum + p.amount, 0) || 0;
-  return originalAmount - confirmedTotal;
-};
+const MODULE = 'ProfileScreen';
 
 export default function ProfileScreen() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [currencySymbol, setCurrencySymbol] = useState<string>('S/');
   const [stats, setStats] = useState({
     totalPrestamos: 0,
     totalServicios: 0,
@@ -38,12 +31,31 @@ export default function ProfileScreen() {
     loadProfile();
   }, []);
 
+  // Función para formatear moneda con símbolo dinámico
+  const formatCurrency = (amount: number): string => {
+    return `${currencySymbol} ${amount.toFixed(2)}`;
+  };
+
+  // Función para obtener el saldo real basado SOLO en pagos confirmados
+  const getRealRemainingAmount = (contract: Contract): number => {
+    const originalAmount = contract.approved_amount || contract.approved_amount || contract.requested_amount || contract.requested_amount || 0;
+    const confirmedTotal = contract.payments
+      ?.filter(p => p.confirmed)
+      .reduce((sum, p) => sum + p.amount, 0) || 0;
+    return originalAmount - confirmedTotal;
+  };
+
   const loadProfile = async () => {
     try {
       const email = await getSession();
       if (email) {
         const profile = await getUserByEmail(email);
         setUser(profile);
+        
+        // Cargar símbolo de moneda
+        if (profile.currency_symbol) {
+          setCurrencySymbol(profile.currency_symbol);
+        }
         
         // Cargar contratos para estadísticas
         const contracts = await getAllUserContracts(profile.phone);
@@ -57,34 +69,45 @@ export default function ProfileScreen() {
   };
 
   const calculateStats = (contracts: Contract[], userPhone: string) => {
-  // Filtrar contratos completados (pagados)
-  const completed = contracts.filter(c => c.status === 'pagado');
-  
-  // Contar préstamos y servicios
-  const prestamos = contracts.filter(c => c.type === 'prestamo').length;
-  const servicios = contracts.filter(c => c.type === 'servicio').length;
-  
-  // Calcular saldo pendiente que me deben (como acreedor)
-  // Usar remainingAmount directamente (ya está actualizado en backend)
-  const lentContracts = contracts.filter(c => c.creditorPhone === userPhone && c.status !== 'pagado');
-  const totalLent = lentContracts.reduce((sum, contract) => {
-    return sum + (contract.remainingAmount || contract.approvedAmount || contract.requestedAmount || 0);
-  }, 0);
-  
-  // Calcular saldo pendiente que debo (como deudor)
-  const debtContracts = contracts.filter(c => c.debtorPhone === userPhone && c.status !== 'pagado');
-  const totalDebt = debtContracts.reduce((sum, contract) => {
-    return sum + (contract.remainingAmount || contract.approvedAmount || contract.requestedAmount || 0);
-  }, 0);
-  
-  setStats({
-    totalPrestamos: prestamos,
-    totalServicios: servicios,
-    totalDebt,
-    totalLent,
-    completedCount: completed.length,
-  });
-};
+    // Filtrar contratos completados (pagados)
+    const completed = contracts.filter(c => c.status === 'pagado');
+    
+    // Contar préstamos y servicios
+    const prestamos = contracts.filter(c => c.type === 'prestamo').length;
+    const servicios = contracts.filter(c => c.type === 'servicio').length;
+    
+    // Calcular saldo pendiente que me deben (como acreedor)
+    const lentContracts = contracts.filter(c => {
+      const creditorPhone = c.creditor_phone || c.creditor_phone;
+      return creditorPhone === userPhone && c.status !== 'pagado';
+    });
+    const totalLent = lentContracts.reduce((sum, contract) => {
+      const remaining = contract.remaining_amount || contract.remaining_amount;
+      const approved = contract.approved_amount || contract.approved_amount;
+      const requested = contract.requested_amount || contract.requested_amount;
+      return sum + (remaining || approved || requested || 0);
+    }, 0);
+    
+    // Calcular saldo pendiente que debo (como deudor)
+    const debtContracts = contracts.filter(c => {
+      const debtorPhone = c.debtor_phone || c.debtor_phone;
+      return debtorPhone === userPhone && c.status !== 'pagado';
+    });
+    const totalDebt = debtContracts.reduce((sum, contract) => {
+      const remaining = contract.remaining_amount || contract.remaining_amount;
+      const approved = contract.approved_amount || contract.approved_amount;
+      const requested = contract.requested_amount || contract.requested_amount;
+      return sum + (remaining || approved || requested || 0);
+    }, 0);
+    
+    setStats({
+      totalPrestamos: prestamos,
+      totalServicios: servicios,
+      totalDebt,
+      totalLent,
+      completedCount: completed.length,
+    });
+  };
 
   const handleLogout = async () => {
     Alert.alert(
@@ -108,33 +131,22 @@ export default function ProfileScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.verdeOlivo} />
+        <Text style={styles.loadingText}>Cargando perfil...</Text>
       </View>
     );
   }
-  /*const testNotification = async () => {
-  await schedulePaymentReminder(
-    'test',
-    '🔔 Notificación de prueba',
-    'Esto es un recordatorio de prueba',
-    5
-  );
-  Alert.alert('✅ Notificación programada', 'Aparecerá en 5 segundos');
-};
-
-const clearNotifications = async () => {
-  await cancelAllNotifications();
-  Alert.alert('✅ Notificaciones eliminadas', 'Todas las notificaciones fueron canceladas');
-};*/
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Información del usuario - Sin avatar */}
+      {/* Información del usuario */}
       <View style={styles.infoCard}>
         <Text style={styles.userName}>{user?.nombres || 'Usuario'}</Text>
         <Text style={styles.userEmail}>{user?.email}</Text>
         <View style={styles.userDetails}>
           <Text style={styles.userDetailText}>📄 DNI: {user?.dni || 'No especificado'}</Text>
           <Text style={styles.userDetailText}>📞 Teléfono: {user?.phone || 'No especificado'}</Text>
+          <Text style={styles.userDetailText}>🌍 País: {user?.country || 'No especificado'}</Text>
+          <Text style={styles.userDetailText}>💱 Moneda: {user?.currency || 'PEN'} ({user?.currency_symbol || 'S/'})</Text>
         </View>
       </View>
 
@@ -154,11 +166,11 @@ const clearNotifications = async () => {
       <View style={styles.moneyStatsContainer}>
         <View style={styles.moneyStatCard}>
           <Text style={styles.moneyStatLabel}>💰 Me deben (pendiente)</Text>
-          <Text style={styles.moneyStatValue}>{normalizers.currency(stats.totalLent)}</Text>
+          <Text style={styles.moneyStatValue}>{formatCurrency(stats.totalLent)}</Text>
         </View>
         <View style={[styles.moneyStatCard, styles.moneyStatCardDebt]}>
           <Text style={styles.moneyStatLabel}>📉 Debo (pendiente)</Text>
-          <Text style={styles.moneyStatValue}>{normalizers.currency(stats.totalDebt)}</Text>
+          <Text style={styles.moneyStatValue}>{formatCurrency(stats.totalDebt)}</Text>
         </View>
       </View>
 
@@ -179,7 +191,8 @@ const clearNotifications = async () => {
           </View>
         </View>
       </View>
-        {/* Botón cerrar sesión */}
+
+      {/* Botón cerrar sesión */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutButtonText}>Cerrar sesión</Text>
       </TouchableOpacity>
@@ -203,6 +216,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.grisClaro,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: Colors.azulMarino,
+    fontSize: 14,
   },
   // Tarjeta de información del usuario
   infoCard: {
@@ -359,25 +377,4 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.grisOscuro,
   },
-  testButtons: {
-  flexDirection: 'row',
-  gap: 12,
-  marginTop: 16,
-  marginBottom: 16,
-},
-testButton: {
-  flex: 1,
-  backgroundColor: Colors.azulMarino,
-  borderRadius: 8,
-  paddingVertical: 10,
-  alignItems: 'center',
-},
-clearButton: {
-  backgroundColor: Colors.grisOscuro,
-},
-testButtonText: {
-  color: Colors.blanco,
-  fontSize: 12,
-  fontWeight: '500',
-},
 });

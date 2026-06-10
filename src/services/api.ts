@@ -2,70 +2,14 @@ import * as SecureStore from 'expo-secure-store';
 import { CONFIG } from '../config';
 import { logger } from '../utils/logger';
 import { supabase } from '../lib/supabase';
+import { User, Contract, Payment, Subscription, FREE_SERVICE_LIMIT } from '../types';
+import { formatDateForDB } from '../utils/dateHelper';
 
 // ==================== FLAG DE MIGRACIÓN ====================
 const USE_SUPABASE = true;
 
 const API_URL = CONFIG.API_URL;
 const MODULE = 'API';
-
-// ==================== TIPOS ====================
-export interface User {
-  id?: string;
-  email: string;
-  phone: string;
-  algorandAddress: string;
-  profileComplete: boolean;
-  nombres?: string;
-  dni?: string;
-  currency?: string;
-  currencySymbol?: string;
-}
-
-export interface Contract {
-  id: string;
-  type: 'prestamo' | 'servicio';
-  debtorPhone: string;
-  debtorName?: string;
-  creditorPhone: string;
-  creditorName?: string;
-  requestedAmount: number;
-  proposedDueDate: string;
-  description: string;
-  status: 'solicitado' | 'aceptado' | 'activo' | 'pagado' | 'rechazado';
-  approvedAmount?: number;
-  approvedDueDate?: string;
-  remainingAmount?: number;
-  depositProofUri?: string;
-  depositProofFileName?: string;
-  depositProofDate?: string;
-  payments: Array<{
-    id: string;
-    amount: number;
-    date: string;
-    type: 'parcial' | 'total';
-    notes?: string;
-    proofUri?: string;
-    proofFileName?: string;
-    confirmed: boolean;
-    confirmedAt?: string;
-  }>;
-  createdAt: string;
-  completedAt?: string;
-  algorandTxId?: string;
-}
-
-export interface Payment {
-  id: string;
-  amount: number;
-  date: string;
-  type: 'parcial' | 'total';
-  notes?: string;
-  proofUri?: string;
-  proofFileName?: string;
-  confirmed: boolean;
-  confirmedAt?: string;
-}
 
 // ==================== SESIÓN ====================
 export async function saveSession(email: string): Promise<void> {
@@ -78,6 +22,7 @@ export async function getSession(): Promise<string | null> {
 
 export async function clearSession(): Promise<void> {
   await SecureStore.deleteItemAsync('Pactia_userEmail');
+  await supabase.auth.signOut();
 }
 
 // ==================== FUNCIONES SUPABASE ====================
@@ -117,12 +62,21 @@ async function supabaseRegister(email: string, password: string): Promise<User> 
 
     await saveSession(email);
 
-    return {
+    // Retornar User completo con valores por defecto
+    const newUser: User = {
+      id: authData.user.id,
       email: authData.user.email!,
       phone: '',
-      algorandAddress: '',
-      profileComplete: false,
+      nombres: '',
+      dni: '',
+      country: 'Perú', // Default
+      currency: 'PEN',
+      currency_symbol: 'S/',
+      algorand_address: '',
+      profile_complete: false,
+      created_at: new Date().toISOString(),
     };
+    return newUser;
   } catch (error: any) {
     logger.error(MODULE, 'Error registrando en Supabase', error);
     throw error;
@@ -155,28 +109,34 @@ async function supabaseLogin(identifier: string, password: string): Promise<User
 
     await saveSession(data.user.email!);
 
-    return {
+    // Retornar User completo
+    const user: User = {
+      id: profile?.id || data.user.id,
       email: data.user.email!,
       phone: profile?.phone || '',
-      algorandAddress: profile?.algorand_address || '',
-      profileComplete: profile?.profile_complete || false,
-      nombres: profile?.nombres,
-      dni: profile?.dni,
+      nombres: profile?.nombres || '',
+      dni: profile?.dni || '',
+      country: profile?.country || 'Perú',
       currency: profile?.currency || 'PEN',
-      currencySymbol: profile?.currency_symbol || 'S/',
+      currency_symbol: profile?.currency_symbol || 'S/',
+      algorand_address: profile?.algorand_address || '',
+      profile_complete: profile?.profile_complete || false,
+      created_at: profile?.created_at || new Date().toISOString(),
     };
+    return user;
   } catch (error: any) {
     logger.error(MODULE, 'Error en login con Supabase', error);
     throw error;
   }
 }
 
-// Completar perfil (ahora con moneda)
+// Completar perfil (con país y moneda)
 async function supabaseCompleteProfile(
   email: string,
   nombres: string,
   dni: string,
   phone: string,
+  country?: string,
   currency?: string,
   currencySymbol?: string
 ): Promise<void> {
@@ -195,6 +155,7 @@ async function supabaseCompleteProfile(
       phone,
       profile_complete: true,
     };
+    if (country) updateData.country = country;
     if (currency) updateData.currency = currency;
     if (currencySymbol) updateData.currency_symbol = currencySymbol;
 
@@ -215,16 +176,20 @@ async function supabaseGetProfile(email: string): Promise<User> {
       .single();
     if (findError || !userData) throw new Error('Usuario no encontrado');
 
-    return {
+    const user: User = {
+      id: userData.id,
       email: userData.email,
       phone: userData.phone || '',
-      algorandAddress: userData.algorand_address || '',
-      profileComplete: userData.profile_complete || false,
-      nombres: userData.nombres,
-      dni: userData.dni,
+      nombres: userData.nombres || '',
+      dni: userData.dni || '',
+      country: userData.country || 'Perú',
       currency: userData.currency || 'PEN',
-      currencySymbol: userData.currency_symbol || 'S/',
+      currency_symbol: userData.currency_symbol || 'S/',
+      algorand_address: userData.algorand_address || '',
+      profile_complete: userData.profile_complete || false,
+      created_at: userData.created_at || new Date().toISOString(),
     };
+    return user;
   } catch (error: any) {
     logger.error(MODULE, 'Error obteniendo perfil', error);
     throw error;
@@ -250,11 +215,15 @@ async function supabaseGetUserByEmail(email: string): Promise<User> {
   return supabaseGetProfile(email);
 }
 
-async function supabaseGetSubscription(email: string): Promise<{ active: boolean; plan: string; expiresAt?: string }> {
+async function supabaseGetSubscription(email: string): Promise<Subscription> {
+  // Por ahora retornar suscripción gratuita
+  // TODO: Implementar cuando tengas tabla de suscripciones
   return { active: false, plan: 'free' };
 }
 
 async function supabaseUpgradeSubscription(email: string, plan: 'monthly' | 'yearly'): Promise<void> {
+  logger.info(MODULE, 'Upgrading subscription', { email, plan });
+  // TODO: Implementar pago con Stripe u otro
   console.warn('Supabase: upgradeSubscription no implementado');
 }
 
@@ -263,7 +232,7 @@ async function supabaseRequestLoan(
   debtorPhone: string,
   creditorPhone: string,
   requestedAmount: number,
-  proposedDueDate: string,
+  proposedDueDate: string,  // Formato DD/MM/YYYY
   description: string
 ): Promise<Contract> {
   try {
@@ -279,6 +248,9 @@ async function supabaseRequestLoan(
       .single();
 
     const contractId = `CT_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    
+    // Convertir fecha para BD
+    const dueDateForDB = formatDateForDB(proposedDueDate);
 
     const { data, error } = await supabase
       .from('contracts')
@@ -290,7 +262,7 @@ async function supabaseRequestLoan(
         creditor_phone: creditorPhone,
         creditor_name: creditorData?.nombres || creditorPhone,
         requested_amount: requestedAmount,
-        proposed_due_date: proposedDueDate,
+        proposed_due_date: dueDateForDB,  // ← Formato YYYY-MM-DD
         description,
         status: 'solicitado',
       })
@@ -316,7 +288,7 @@ async function supabaseGetPendingRequests(creditorPhone: string): Promise<Contra
       .eq('status', 'solicitado')
       .order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return data.map(mapContractFromDB);
+    return (data || []).map(mapContractFromDB);
   } catch (error: any) {
     logger.error(MODULE, 'Error obteniendo solicitudes pendientes', error);
     return [];
@@ -332,7 +304,7 @@ async function supabaseGetSentRequests(phone: string): Promise<Contract[]> {
       .eq('status', 'solicitado')
       .order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return data.map(mapContractFromDB);
+    return (data || []).map(mapContractFromDB);
   } catch (error: any) {
     logger.error(MODULE, 'Error obteniendo solicitudes enviadas', error);
     return [];
@@ -342,7 +314,7 @@ async function supabaseGetSentRequests(phone: string): Promise<Contract[]> {
 async function supabaseApproveLoan(
   contractId: string,
   approvedAmount: number,
-  approvedDueDate: string,
+  approvedDueDate: string,  // Formato DD/MM/YYYY
   depositProofUri?: string,
   depositProofFileName?: string
 ): Promise<Contract> {
@@ -354,17 +326,24 @@ async function supabaseApproveLoan(
       .single();
     if (fetchError) throw new Error(fetchError.message);
 
-    let updateData: any = {
+    // Convertir fecha para BD
+    const dueDateForDB = formatDateForDB(approvedDueDate);
+    const now = new Date();
+    const nowISO = now.toISOString();
+    const todayDate = nowISO.split('T')[0];
+
+    const updateData: any = {
       status: 'aceptado',
       approved_amount: approvedAmount,
-      approved_due_date: approvedDueDate,
+      approved_due_date: dueDateForDB,
       remaining_amount: approvedAmount,
     };
 
     if (depositProofUri) {
       updateData.deposit_proof_uri = depositProofUri;
       updateData.deposit_proof_file_name = depositProofFileName;
-      updateData.deposit_proof_date = new Date().toISOString();
+      updateData.deposit_proof_date = nowISO;
+      updateData.deposit_proof_date_only = todayDate;  // ← NUEVO
     }
 
     if (!existingContract.debtor_name) {
@@ -420,7 +399,7 @@ async function supabaseGetActiveDebts(debtorPhone: string): Promise<Contract[]> 
       .eq('debtor_phone', debtorPhone)
       .in('status', ['aceptado', 'activo']);
     if (error) throw new Error(error.message);
-    return data.map(contract => ({
+    return (data || []).map(contract => ({
       ...mapContractFromDB(contract),
       payments: contract.payments?.map(mapPaymentFromDB) || [],
     }));
@@ -438,7 +417,7 @@ async function supabaseGetActiveLent(phone: string): Promise<Contract[]> {
       .eq('creditor_phone', phone)
       .in('status', ['aceptado', 'activo']);
     if (error) throw new Error(error.message);
-    return data.map(contract => ({
+    return (data || []).map(contract => ({
       ...mapContractFromDB(contract),
       payments: contract.payments?.map(mapPaymentFromDB) || [],
     }));
@@ -456,7 +435,7 @@ async function supabaseGetAllUserContracts(phone: string): Promise<Contract[]> {
       .or(`debtor_phone.eq.${phone},creditor_phone.eq.${phone}`)
       .order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return data.map(mapContractFromDB);
+    return (data || []).map(mapContractFromDB);
   } catch (error: any) {
     logger.error(MODULE, 'Error obteniendo todos los contratos', error);
     return [];
@@ -497,6 +476,9 @@ async function supabaseMakePayment(
     const remaining = contract.remaining_amount || contract.approved_amount;
     const paymentType = amount === remaining ? 'total' : 'parcial';
     const paymentId = `PMT_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date();
+    const nowISO = now.toISOString();
+    const todayDate = nowISO.split('T')[0];
 
     const { error: paymentError } = await supabase
       .from('payments')
@@ -508,6 +490,8 @@ async function supabaseMakePayment(
         proof_uri: proofUri,
         proof_file_name: proofFileName,
         confirmed: false,
+        date: nowISO,
+        payment_date: todayDate,  // ← NUEVO
       });
     if (paymentError) throw new Error(paymentError.message);
 
@@ -542,9 +526,17 @@ async function supabaseConfirmPayment(contractId: string, paymentId: string, cre
     if (contractError) throw new Error(contractError.message);
     if (contract.creditor_phone !== creditorPhone) throw new Error('No tienes permiso');
 
+    const now = new Date();
+    const nowISO = now.toISOString();
+    const todayDate = nowISO.split('T')[0];
+
     const { error: updateError } = await supabase
       .from('payments')
-      .update({ confirmed: true, confirmed_at: new Date().toISOString() })
+      .update({ 
+        confirmed: true, 
+        confirmed_at: nowISO,
+        confirmed_date: todayDate  // ← NUEVO
+      })
       .eq('id', paymentId);
     if (updateError) throw new Error(updateError.message);
 
@@ -559,13 +551,20 @@ async function supabaseConfirmPayment(contractId: string, paymentId: string, cre
     const remainingAmount = originalAmount - confirmedTotal;
     const newStatus = remainingAmount <= 0 ? 'pagado' : 'activo';
 
+    const updateContractData: any = {
+      remaining_amount: remainingAmount,
+      status: newStatus,
+    };
+
+    // Si el contrato se completa (pagado), guardar completed_date
+    if (newStatus === 'pagado') {
+      updateContractData.completed_at = nowISO;
+      updateContractData.completed_date = todayDate;  // ← NUEVO
+    }
+
     const { error: contractUpdateError } = await supabase
       .from('contracts')
-      .update({
-        remaining_amount: remainingAmount,
-        status: newStatus,
-        completed_at: remainingAmount <= 0 ? new Date().toISOString() : null,
-      })
+      .update(updateContractData)
       .eq('id', contractId);
     if (contractUpdateError) throw new Error(contractUpdateError.message);
 
@@ -587,14 +586,14 @@ async function supabaseConfirmPayment(contractId: string, paymentId: string, cre
 
 async function supabaseGetApprovedServicesCount(phone: string): Promise<number> {
   try {
-    const { data, error } = await supabase
+    const { count, error } = await supabase
       .from('contracts')
-      .select('id', { count: 'exact' })
+      .select('id', { count: 'exact', head: true })
       .eq('type', 'servicio')
       .eq('creditor_phone', phone)
       .in('status', ['aceptado', 'activo', 'pagado']);
     if (error) throw new Error(error.message);
-    return data?.length || 0;
+    return count || 0;
   } catch (error: any) {
     logger.error(MODULE, 'Error contando servicios aprobados', error);
     return 0;
@@ -602,7 +601,7 @@ async function supabaseGetApprovedServicesCount(phone: string): Promise<number> 
 }
 
 async function supabaseCanRequestService(phone: string): Promise<{ canRequest: boolean; currentCount: number; limit: number }> {
-  const limit = 4;
+  const limit = FREE_SERVICE_LIMIT;
   try {
     const currentCount = await supabaseGetApprovedServicesCount(phone);
     return { canRequest: currentCount < limit, currentCount, limit };
@@ -615,38 +614,46 @@ function mapContractFromDB(data: any): Contract {
   return {
     id: data.id,
     type: data.type,
-    debtorPhone: data.debtor_phone,
-    debtorName: data.debtor_name,
-    creditorPhone: data.creditor_phone,
-    creditorName: data.creditor_name,
-    requestedAmount: data.requested_amount,
-    proposedDueDate: data.proposed_due_date,
+    debtor_phone: data.debtor_phone,
+    debtor_name: data.debtor_name,
+    creditor_phone: data.creditor_phone,
+    creditor_name: data.creditor_name,
+    requested_amount: data.requested_amount,
+    proposed_due_date: data.proposed_due_date,
     description: data.description,
     status: data.status,
-    approvedAmount: data.approved_amount,
-    approvedDueDate: data.approved_due_date,
-    remainingAmount: data.remaining_amount,
+    approved_amount: data.approved_amount,
+    approved_due_date: data.approved_due_date,
+    remaining_amount: data.remaining_amount,
+    deposit_proof_uri: data.deposit_proof_uri,
+    deposit_proof_file_name: data.deposit_proof_file_name,
+    deposit_proof_date: data.deposit_proof_date,
+    created_at: data.created_at,
+    completed_at: data.completed_at,
+    algorand_tx_id: data.algorand_tx_id,
     payments: [],
-    createdAt: data.created_at,
-    completedAt: data.completed_at,
-    algorandTxId: data.algorand_tx_id,
-    depositProofUri: data.deposit_proof_uri,
-    depositProofFileName: data.deposit_proof_file_name,
-    depositProofDate: data.deposit_proof_date,
+    // ========== NUEVOS CAMPOS DE FECHA ==========
+    created_date: data.created_date,
+    deposit_proof_date_only: data.deposit_proof_date_only,
+    completed_date: data.completed_date,
   };
 }
 
-function mapPaymentFromDB(data: any): any {
+function mapPaymentFromDB(data: any): Payment {
   return {
     id: data.id,
+    contract_id: data.contract_id,
     amount: data.amount,
     date: data.date,
     type: data.type,
     notes: data.notes,
-    proofUri: data.proof_uri,
-    proofFileName: data.proof_file_name,
+    proof_uri: data.proof_uri,
+    proof_file_name: data.proof_file_name,
     confirmed: data.confirmed,
-    confirmedAt: data.confirmed_at,
+    confirmed_at: data.confirmed_at,
+    // ========== NUEVOS CAMPOS DE FECHA ==========
+    payment_date: data.payment_date,
+    confirmed_date: data.confirmed_date,
   };
 }
 
@@ -655,7 +662,7 @@ async function supabaseVerifyContractOnAlgorand(contractId: string, algorandTxId
   transactionId: string;
   explorerUrl: string;
 }> {
-  console.warn('Supabase: verifyContractOnAlgorand no implementado');
+  logger.warn(MODULE, 'verifyContractOnAlgorand no implementado');
   return { success: false, transactionId: '', explorerUrl: '' };
 }
 
@@ -720,3 +727,4 @@ export const confirmPayment = confirmPaymentImpl;
 export const getApprovedServicesCount = getApprovedServicesCountImpl;
 export const canRequestService = canRequestServiceImpl;
 export const verifyContractOnAlgorand = verifyContractOnAlgorandImpl;
+export type { Contract, Payment, User, Subscription };
