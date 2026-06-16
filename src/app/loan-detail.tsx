@@ -269,76 +269,83 @@ export default function LoanDetailScreen() {
 
         {/* Fechas */}
        
-<View style={styles.card}>
-  <Text style={styles.cardTitle}>📅 Fechas</Text>
-  <View style={styles.infoRow}>
-    <Text style={styles.infoLabel}>Fecha propuesta:</Text>
-    <Text style={styles.infoValue}>
-      {formatDateFromDB(contract.proposed_due_date || contract.proposedDueDate)}
-    </Text>
-  </View>
-  {approvedDueDate && (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>Fecha acordada:</Text>
-      <Text style={styles.infoValueBold}>
-        {formatDateFromDB(approvedDueDate)}
-      </Text>
-    </View>
-  )}
-  <View style={styles.infoRow}>
-    <Text style={styles.infoLabel}>Creado:</Text>
-    <Text style={styles.infoValue}>
-      {formatTimestampToDate(createdAt, contract.created_date)}
-    </Text>
-  </View>
-  {completedAt && (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>Completado:</Text>
-      <Text style={styles.infoValue}>
-        {formatTimestampToDate(completedAt, contract.completed_date)}
-      </Text>
-    </View>
-  )}
-</View>
+          <View style={styles.card}>
+          <Text style={styles.cardTitle}>📅 Fechas</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Fecha propuesta:</Text>
+            <Text style={styles.infoValue}>
+              {formatDateFromDB(contract.proposed_due_date || contract.proposedDueDate)}
+            </Text>
+          </View>
+          {approvedDueDate && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Fecha acordada:</Text>
+              <Text style={styles.infoValueBold}>
+                {formatDateFromDB(approvedDueDate)}
+              </Text>
+            </View>
+          )}
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Creado:</Text>
+            <Text style={styles.infoValue}>
+              {formatTimestampToDate(createdAt, contract.created_date)}
+            </Text>
+          </View>
+          {completedAt && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Completado:</Text>
+              <Text style={styles.infoValue}>
+                {formatTimestampToDate(completedAt, contract.completed_date)}
+              </Text>
+            </View>
+          )}
+        </View>
 
        {/* Comprobante de depósito / Evidencia del servicio */}
-{depositProofUri && (
-  <View style={styles.card}>
-    <Text style={styles.cardTitle}>
-      {contract?.type === 'prestamo' ? '🏦 Comprobante de depósito' : '📎 Evidencia del servicio'}
-    </Text>
-    {depositProofDate && (
-      <Text style={styles.depositInfo}>
-        {contract?.type === 'prestamo' 
-          ? 'El acreedor realizó el depósito el: ' 
-          : 'La evidencia fue subida el: '}
-        {formatTimestampToDate(depositProofDate, contract?.deposit_proof_date_only)}
-      </Text>
-    )}
-    <TouchableOpacity
-      style={styles.viewProofButton}
-      onPress={() => {
-        router.push({
-          pathname: '/view-proof',
-          params: { 
-            uri: depositProofUri, 
-            fileName: depositProofFileName || (contract?.type === 'prestamo' ? 'comprobante-deposito' : 'evidencia-servicio')
-          }
-        });
-      }}
-    >
-      <Text style={styles.viewProofText}>
-        {contract?.type === 'prestamo' ? '📎 Ver comprobante de depósito' : '📎 Ver evidencia del servicio'}
-      </Text>
-    </TouchableOpacity>
-  </View>
-)}
+        {depositProofUri && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>
+              {contract?.type === 'prestamo' ? '🏦 Comprobante de depósito' : '📎 Evidencia del servicio'}
+            </Text>
+            {depositProofDate && (
+              <Text style={styles.depositInfo}>
+                {contract?.type === 'prestamo' 
+                  ? 'El acreedor realizó el depósito el: ' 
+                  : 'La evidencia fue subida el: '}
+                {formatTimestampToDate(depositProofDate, contract?.deposit_proof_date_only)}
+              </Text>
+            )}
+            <TouchableOpacity
+              style={styles.viewProofButton}
+              onPress={() => {
+                router.push({
+                  pathname: '/view-proof',
+                  params: { 
+                    uri: depositProofUri, 
+                    fileName: depositProofFileName || (contract?.type === 'prestamo' ? 'comprobante-deposito' : 'evidencia-servicio')
+                  }
+                });
+              }}
+            >
+              <Text style={styles.viewProofText}>
+                {contract?.type === 'prestamo' ? '📎 Ver comprobante de depósito' : '📎 Ver evidencia del servicio'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Historial de pagos */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>📋 Historial de pagos</Text>
-          {contract.payments && contract.payments.length > 0 ? (
-            contract.payments.map((payment: any, index: number) => (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>📋 Historial de pagos</Text>
+            {contract.payments && contract.payments.length > 0 ? (
+              // Ordenar pagos de más antiguo a más reciente usando date (timestamp)
+          [...contract.payments]
+            .sort((a, b) => {
+              const dateA = new Date(a.date).getTime();
+              const dateB = new Date(b.date).getTime();
+              return dateA - dateB;
+            })
+            .map((payment: any, index: number) => (
               <View key={payment.id} style={styles.paymentItem}>
                 <View style={styles.paymentHeader}>
                   <Text style={styles.paymentNumber}>Pago #{index + 1}</Text>
@@ -347,14 +354,14 @@ export default function LoanDetailScreen() {
                   </Text>
                 </View>
                 <View style={styles.paymentDetails}>
-  <Text style={styles.paymentAmount}>{formatCurrency(payment.amount)}</Text>
-  <Text style={styles.paymentDate}>
-    {payment.payment_date 
-      ? formatDateFromDB(payment.payment_date)
-      : formatTimestampToDateTime(payment.date)
-    }
-  </Text>
-</View>
+                  <Text style={styles.paymentAmount}>{formatCurrency(payment.amount)}</Text>
+                  <Text style={styles.paymentDate}>
+                    {payment.payment_date 
+                      ? formatDateFromDB(payment.payment_date)
+                      : formatTimestampToDate(payment.date)
+                    }
+                  </Text>
+                </View>
                 
                 {/* Indicador de estado de confirmación */}
                 <View style={styles.paymentStatus}>
@@ -378,10 +385,10 @@ export default function LoanDetailScreen() {
                 )}
               </View>
             ))
-          ) : (
-            <Text style={styles.noPayments}>No hay pagos registrados</Text>
-          )}
-        </View>
+        ) : (
+          <Text style={styles.noPayments}>No hay pagos registrados</Text>
+        )}
+      </View>
 
         {/* Blockchain - Solo mostrar si hay transacción */}
         {txId && (
