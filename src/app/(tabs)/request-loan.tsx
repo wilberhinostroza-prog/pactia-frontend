@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Colors } from '../../constants/Colors';
@@ -21,6 +22,7 @@ import { DatePicker } from '../../components/DatePicker';
 import countryCodes from '../../data/country-codes.json';
 import { User } from '../../types';
 import { formatDateForDB } from '../../utils/dateHelper';
+import { useInterstitialAd } from '../../hooks/useInterstitialAd';
 
 const MODULE = 'RequestLoanScreen';
 const FREE_SERVICE_LIMIT = 10;
@@ -55,6 +57,12 @@ export default function RequestLoanScreen() {
   const [subscriptionModalVisible, setSubscriptionModalVisible] = useState(false);
   const [serviceLimitInfo, setServiceLimitInfo] = useState({ currentCount: 0, limit: FREE_SERVICE_LIMIT });
   const [upgrading, setUpgrading] = useState(false);
+
+  // Estado para el temporizador del anuncio
+  const [isAdTimerActive, setIsAdTimerActive] = useState(false);
+
+  // Hook para anuncios intersticiales
+  const { showAd, loadAd } = useInterstitialAd();
 
   const { loading: searching, execute: executeSearch } = useAsync({
     module: MODULE,
@@ -197,6 +205,7 @@ export default function RequestLoanScreen() {
     await executeSearch(findUserByPhone(creditorPhone), 'Buscando usuario');
   };
 
+  // ===== FUNCIÓN HANDLESUBMIT CON ANUNCIO =====
   const handleSubmit = async () => {
     if (!creditorName) {
       setToastMessage('Primero busca y confirma al usuario');
@@ -240,20 +249,43 @@ export default function RequestLoanScreen() {
     const canProceed = await checkServiceLimit();
     if (!canProceed) return;
 
-    const amountNum = parseFloat(amount);
-    const dueDateForDB = formatDateForDB(dueDate);
+    // ===== INICIO: LÓGICA DEL ANUNCIO CON TEMPORIZADOR =====
+    // Mostrar anuncio antes de enviar la solicitud
+    setIsAdTimerActive(true);
     
-    await executeRequest(
-      requestLoan(
-        contractType,
-        userPhone, 
-        creditorPhone, 
-        amountNum, 
-        dueDateForDB, 
-        description.trim()
-      ),
-      'Enviando solicitud'
-    );
+    // 1. Precargar el anuncio
+    loadAd();
+    
+    // 2. Esperar 3 segundos (temporizador)
+    setTimeout(async () => {
+      setIsAdTimerActive(false);
+      
+      // 3. Mostrar el anuncio intersticial
+      const wasAdShown = await showAd();
+      
+      if (wasAdShown) {
+        console.log('✅ Anuncio visto, enviando solicitud...');
+      } else {
+        console.log('ℹ️ Anuncio no mostrado, enviando solicitud de todas formas...');
+      }
+      
+      // 4. Enviar la solicitud (después del anuncio)
+      const amountNum = parseFloat(amount);
+      const dueDateForDB = formatDateForDB(dueDate);
+      
+      await executeRequest(
+        requestLoan(
+          contractType,
+          userPhone, 
+          creditorPhone, 
+          amountNum, 
+          dueDateForDB, 
+          description.trim()
+        ),
+        'Enviando solicitud'
+      );
+    }, 3000); // 3 segundos de espera
+    // ===== FIN: LÓGICA DEL ANUNCIO CON TEMPORIZADOR =====
   };
 
   const handleSelectContact = (phoneNumber: string, name: string) => {
@@ -424,6 +456,15 @@ export default function RequestLoanScreen() {
         initialDate={new Date()}
         title={contractType === 'prestamo' ? 'Fecha de pago' : 'Fecha del servicio'}
       />
+
+      {/* Overlay de temporizador para el anuncio */}
+      {isAdTimerActive && (
+        <View style={styles.adTimerOverlay}>
+          <ActivityIndicator size="large" color={Colors.verdeOlivo} />
+          <Text style={styles.adTimerText}>Preparando tu solicitud...</Text>
+          <Text style={styles.adTimerSubtext}>Esto tomará solo unos segundos</Text>
+        </View>
+      )}
 
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <Text style={styles.title}>Nueva solicitud</Text>
@@ -787,6 +828,30 @@ const styles = StyleSheet.create({
     color: Colors.blanco,
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  // Estilos para el overlay del temporizador
+  adTimerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+  },
+  adTimerText: {
+    color: Colors.blanco,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+  },
+  adTimerSubtext: {
+    color: Colors.blanco,
+    fontSize: 14,
+    opacity: 0.7,
+    marginTop: 8,
   },
   modalOverlay: {
     flex: 1,

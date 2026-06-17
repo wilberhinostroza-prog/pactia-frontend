@@ -3,13 +3,25 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Colors } from '../constants/Colors';
 import { ensureSharedFolder } from '../utils/sharedFiles';
+import mobileAds from 'react-native-google-mobile-ads';
 //import { useNotifications } from '../hooks/useNotifications';
 
 export default function RootLayout() {
   // Crear carpeta compartida al iniciar la app
   //useNotifications(); // ← Agregar esta línea
+  
   useEffect(() => {
     ensureSharedFolder();
+    
+    // Inicializar SDK de anuncios de Google
+    mobileAds()
+      .initialize()
+      .then(() => {
+        console.log('✅ Anuncios de Google inicializados correctamente');
+      })
+      .catch((error) => {
+        console.error('❌ Error al inicializar anuncios:', error);
+      });
   }, []);
 
   return (

@@ -257,16 +257,21 @@ export default function PendingRequestsScreen() {
   };
 
   const handleOpenApproveModal = (request: any) => {
-    if (request.type === 'servicio' && !canAcceptService()) {
-      setServiceLimitModalVisible(true);
-      return;
-    }
-    setSelectedRequest(request);
-    setApprovedAmount(request.requested_amount || request.requestedAmount || 0);
-    setApprovedDueDate(request.proposed_due_date || request.proposedDueDate || '');
-    setDepositImage(null);
-    setModalVisible(true);
-  };
+  if (request.type === 'servicio' && !canAcceptService()) {
+    setServiceLimitModalVisible(true);
+    return;
+  }
+  setSelectedRequest(request);
+  
+  // Obtener el monto correcto (requested_amount o requestedAmount)
+  const requestedAmount = request.requested_amount || request.requestedAmount || 0;
+  setApprovedAmount(requestedAmount.toString());
+  
+  const dueDate = request.proposed_due_date || request.proposedDueDate || '';
+  setApprovedDueDate(dueDate);
+  setDepositImage(null);
+  setModalVisible(true);
+};
 
   const handleUpgradeSubscription = async (plan: 'monthly' | 'yearly') => {
     setUpgrading(true);

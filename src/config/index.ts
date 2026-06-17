@@ -1,13 +1,14 @@
 // Configuración centralizada de Pactia
+import Constants from 'expo-constants';
+
+console.log('📱 Constants.extra:', Constants.expoConfig?.extra);
+
 export const CONFIG = {
-  // API
-  API_URL: 'https://backend-pactia.onrender.com/api',
-  /*API_URL: 'http://10.20.10.22:3001/api',*/
-  USE_SUPABASE: false,
-  
   // Supabase
-  SUPABASE_URL: 'https://wvesdeutvzjazmvalweg.supabase.co',
-  SUPABASE_ANON_KEY: 'sb_publishable_hIUeTuMXMewLWpJ3Xqjwyg_ce1IPGRh',
+  //USE_SUPABASE: true,
+  API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001',
+  SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL || '',
+  SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
   
   // Blockchain
   BLOCKCHAIN: {
@@ -47,3 +48,5 @@ export const CONFIG = {
     SERVICE: 'servicio',
   },
 };
+console.log('🔑 CONFIG.SUPABASE_URL:', CONFIG.SUPABASE_URL);
+console.log('🔑 CONFIG.SUPABASE_ANON_KEY:', CONFIG.SUPABASE_ANON_KEY?.substring(0, 20) + '...');

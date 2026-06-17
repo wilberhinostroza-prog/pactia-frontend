@@ -1,3 +1,4 @@
+// src/lib/supabase.ts
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import { CONFIG } from '../config';
@@ -28,8 +29,20 @@ const ExpoSecureStoreAdapter = {
   },
 };
 
-const supabaseUrl = CONFIG.SUPABASE_URL || 'https://wvesdeutvzjazmvalweg.supabase.co';
-const supabaseAnonKey = CONFIG.SUPABASE_ANON_KEY || 'sb_publishable_hIUeTuMXMewLWpJ3Xqjwyg_ce1IPGRh';
+// Usar las variables de entorno de CONFIG
+const supabaseUrl = CONFIG.SUPABASE_URL;
+const supabaseAnonKey = CONFIG.SUPABASE_ANON_KEY;
+
+// LOGS DE DEPURACIÓN - ELIMINAR DESPUÉS DE VERIFICAR
+console.log('🔍 Inicializando Supabase...');
+console.log('📡 URL:', supabaseUrl);
+console.log('🔑 Key:', supabaseAnonKey ? supabaseAnonKey.substring(0, 20) + '...' : 'NO DEFINIDA');
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('❌ ERROR: Supabase URL o ANON_KEY no definidas en CONFIG');
+  console.error('   URL:', supabaseUrl);
+  console.error('   Key:', supabaseAnonKey);
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -39,3 +52,5 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: false,
   },
 });
+
+console.log('✅ Supabase cliente creado');
